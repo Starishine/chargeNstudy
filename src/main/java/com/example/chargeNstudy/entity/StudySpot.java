@@ -33,6 +33,10 @@ public class StudySpot {
         NONE, FEW, MODERATE, MANY
     }
 
+    public enum SeatingCapacity {
+        LIMITED, MODERATE, PLENTIFUL
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -54,6 +58,11 @@ public class StudySpot {
     @Enumerated(EnumType.STRING)
     private NoiseLevel noiseLevel;
 
+    @Enumerated(EnumType.STRING)
+    private SeatingCapacity seatingCapacity;
+
+    private Boolean groupStudyAllowed;
+
     private boolean airConditioned;
     private String openingHours;
     private boolean foodNearby;
@@ -68,6 +77,8 @@ public class StudySpot {
             Double longitude,
             Quantity socketQuantity,
             NoiseLevel noiseLevel,
+            SeatingCapacity seatingCapacity,
+            boolean groupStudyAllowed,
             boolean airConditioned,
             String openingHours,
             boolean foodNearby,
@@ -80,6 +91,8 @@ public class StudySpot {
         this.longitude = longitude;
         this.socketQuantity = socketQuantity;
         this.noiseLevel = noiseLevel;
+        this.seatingCapacity = seatingCapacity;
+        this.groupStudyAllowed = groupStudyAllowed;
         this.airConditioned = airConditioned;
         this.openingHours = openingHours;
         this.foodNearby = foodNearby;

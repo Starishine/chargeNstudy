@@ -160,6 +160,11 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             case "socket" -> {
                 selections.put("socketQuantity", value);
                 sendText(chatId, "Selected socket preference: " + toSocketText(value));
+                sendGroupOptions(chatId);
+            }
+            case "group" -> {
+                selections.put("withFriends", value);
+                sendText(chatId, "Selected study group: " + toGroupText(value));
                 sendResults(chatId, selections);
                 userSelections.remove(chatId);
                 facultyOptionsCache.remove(chatId);
@@ -244,11 +249,21 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         send(chatId, "How many power sockets do you need?", rows);
     }
 
+    private void sendGroupOptions(long chatId) throws Exception {
+        List<List<InlineKeyboardButton>> rows = List.of(
+                List.of(button("Studying alone", "group:false")),
+                List.of(button("Studying with friends", "group:true")),
+                List.of(button("Doesn't matter", "group:"))
+        );
+        send(chatId, "Who are you studying with?", rows);
+    }
+
     private boolean matchesPreferences(
             StudySpot spot,
             Boolean quiet,
             Boolean aircon,
-            String socketQuantity) {
+            String socketQuantity,
+            Boolean withFriends) {
 
         if (Boolean.TRUE.equals(quiet)
                 && spot.getNoiseLevel() != StudySpot.NoiseLevel.QUIET) {
@@ -261,6 +276,11 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         }
 
         if (!meetsSocketRequirement(spot, socketQuantity)) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(withFriends)
+                && !Boolean.TRUE.equals(spot.getGroupStudyAllowed())) {
             return false;
         }
 
@@ -285,7 +305,8 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             StudySpot spot,
             Boolean quiet,
             Boolean aircon,
-            String socketQuantity) {
+            String socketQuantity,
+            Boolean withFriends) {
 
         int distance = 0;
 
@@ -314,6 +335,18 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                     : Math.max(0, requested.ordinal() - available.ordinal());
         }
 
+        if (Boolean.TRUE.equals(withFriends)) {
+            if (!Boolean.TRUE.equals(spot.getGroupStudyAllowed())) {
+                distance += 4;
+            }
+            distance += switch (spot.getSeatingCapacity()) {
+                case PLENTIFUL -> 0;
+                case MODERATE -> 1;
+                case LIMITED -> 2;
+                case null -> 3;
+            };
+        }
+
         return distance;
     }
 
@@ -321,7 +354,8 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             StudySpot spot,
             Boolean quiet,
             Boolean aircon,
-            String socketQuantity) {
+            String socketQuantity,
+            Boolean withFriends) {
 
         List<String> differences = new ArrayList<>();
 
@@ -343,6 +377,12 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                     + ", available " + friendlyEnum(spot.getSocketQuantity()));
         }
 
+
+        if (Boolean.TRUE.equals(withFriends)
+                && !Boolean.TRUE.equals(spot.getGroupStudyAllowed())) {
+            differences.add("Group study: not recommended");
+        }
+
         return String.join("; ", differences);
     }
 
@@ -353,6 +393,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         Boolean quiet = blankToBoolean(selections.get("quiet"));
         Boolean aircon = blankToBoolean(selections.get("aircon"));
         String socketQuantity = blankToNull(selections.get("socketQuantity"));
+        Boolean withFriends = blankToBoolean(selections.get("withFriends"));
 
         List<StudySpot> results = restClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -376,21 +417,27 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
 
         List<StudySpot> exactMatches = results.stream()
                 .filter(spot -> matchesPreferences(
-                spot, quiet, aircon, socketQuantity))
+                spot, quiet, aircon, socketQuantity, withFriends))
                 .toList();
 
         boolean hasExactMatches = !exactMatches.isEmpty();
         List<StudySpot> recommendations;
 
         if (hasExactMatches) {
-            recommendations = exactMatches;
+            recommendations = exactMatches.stream()
+                    .sorted(Comparator
+                            .comparingInt((StudySpot spot) -> preferenceDistance(
+                            spot, quiet, aircon, socketQuantity, withFriends))
+                            .thenComparing(StudySpot::getName,
+                                    Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                    .toList();
             sendText(chatId,
                     "✨ Here are your top recommendations");
         } else {
             recommendations = results.stream()
                     .sorted(Comparator
-                            .comparingInt((StudySpot spot) -> preferenceDistance(
-                            spot, quiet, aircon, socketQuantity))
+                             .comparingInt((StudySpot spot) -> preferenceDistance(
+                            spot, quiet, aircon, socketQuantity, withFriends))
                             .thenComparing(StudySpot::getName,
                                     Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                     .toList();
@@ -411,7 +458,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             String differences = hasExactMatches
                     ? null
                     : preferenceDifferences(
-                            spot, quiet, aircon, socketQuantity);
+                            spot, quiet, aircon, socketQuantity, withFriends);
             sendStudySpotCard(chatId, spot, differences);
         }
 
@@ -447,6 +494,8 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
 
             🔇 <b>Noise:</b> %s
             🔌 <b>Sockets:</b> %s
+            🪑 <b>Seating:</b> %s
+            👥 <b>Group study:</b> %s
             ❄️ <b>Aircon:</b> %s
             🕒 <b>Hours:</b> %s
             🍜 <b>Food nearby:</b> %s
@@ -457,6 +506,9 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 escape(spot.getDescription()),
                 friendlyEnum(spot.getNoiseLevel()),
                 friendlyEnum(spot.getSocketQuantity()),
+                friendlyEnum(spot.getSeatingCapacity()),
+                Boolean.TRUE.equals(spot.getGroupStudyAllowed())
+                        ? "Suitable" : "Not recommended",
                 spot.isAirConditioned() ? "Yes" : "No",
                 escape(spot.getOpeningHours()),
                 spot.isFoodNearby() ? "Yes" : "No"
@@ -545,6 +597,15 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
 
     private String toSocketText(String value) {
         return value == null || value.isBlank() ? "Doesn't matter" : value;
+    }
+
+    private String toGroupText(String value) {
+        if (value == null || value.isBlank()) {
+            return "Doesn't matter";
+        }
+        return Boolean.parseBoolean(value)
+                ? "Studying with friends"
+                : "Studying alone";
     }
 
     private String blankToNull(String value) {

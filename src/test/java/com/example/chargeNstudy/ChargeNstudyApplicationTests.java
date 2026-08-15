@@ -8,7 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import com.example.chargeNstudy.service.StudySpotService;
 
-@SpringBootTest
+@SpringBootTest(properties = "telegram.bot.token=")
 class ChargeNstudyApplicationTests {
 
 	@Autowired
@@ -52,6 +52,22 @@ class ChargeNstudyApplicationTests {
 					.isEqualTo("LIBRARY");
 			assertThat(spot.getBuilding().getFaculty()).isNull();
 		});
+	}
+
+	@Test
+	void preseededSpotsHaveGroupAndSeatingInformation() {
+		var spots = studySpotService.getAllStudySpots();
+
+		assertThat(spots).isNotEmpty();
+		assertThat(spots).allSatisfy(spot ->
+				assertThat(spot.getSeatingCapacity()).isNotNull());
+
+		var terrace = spots.stream()
+				.filter(spot -> spot.getName().equals("The Terrace"))
+				.findFirst()
+				.orElseThrow();
+		assertThat(terrace.getGroupStudyAllowed()).isTrue();
+		assertThat(terrace.isAirConditioned()).isFalse();
 	}
 
 }
