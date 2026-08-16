@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import com.example.chargeNstudy.entity.Building;
+import org.springframework.http.MediaType;
 
 @Service
 public class OpenRouteService {
@@ -24,7 +25,10 @@ public class OpenRouteService {
                 .build();
     }
 
-    public List<WalkingRoute> calculateWalkingRoutes(double userLatitude, double userLongitude, List<Building> buildings) {
+    public List<WalkingRoute> calculateWalkingRoutes(
+            double userLatitude,
+            double userLongitude,
+            List<Building> buildings) {
         if (buildings.isEmpty()) {
             return List.of();
         }
@@ -34,7 +38,9 @@ public class OpenRouteService {
         locations.add(List.of(userLongitude, userLatitude));
         for (Building building : buildings) {
             if (building.getLatitude() == null || building.getLongitude() == null) {
-                throw new IllegalArgumentException("Building " + building.getName() + " has null latitude `or longitude");
+                throw new IllegalArgumentException(
+                        "Building " + building.getName()
+                        + " has null latitude or longitude");
             }
 
             locations.add(List.of(building.getLongitude(), building.getLatitude()));
@@ -54,6 +60,7 @@ public class OpenRouteService {
 
         OrsMatrixResponse response = restClient.post()
                 .uri("/v2/matrix/foot-walking")
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(request)
                 .retrieve()
                 .body(OrsMatrixResponse.class);

@@ -20,6 +20,13 @@ import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import org.springframework.web.util.HtmlUtils;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
+import org.telegram.telegrambots.meta.api.objects.Location;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+import com.example.chargeNstudy.service.routing.OpenRouteService;
+import com.example.chargeNstudy.service.routing.WalkingRoute;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -29,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Component
 @ConditionalOnExpression("T(org.springframework.util.StringUtils).hasText('${telegram.bot.token:}')")
@@ -37,6 +45,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     private final String botToken;
     private final String botUsername;
     private final RestClient restClient;
+    private final OpenRouteService openRouteService;
 
     // Tracks each user's in-progress selections (chatId -> filters so far).
     private final Map<Long, Map<String, String>> userSelections = new ConcurrentHashMap<>();
@@ -49,10 +58,12 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     public ChargeStudyBot(
             @Value("${telegram.bot.token}") String botToken,
             @Value("${telegram.bot.username}") String botUsername,
-            @Value("${server.port:8081}") int serverPort) {
+            @Value("${server.port:8081}") int serverPort,
+            OpenRouteService openRouteService) {
         this.botToken = botToken;
         this.botUsername = botUsername;
         this.restClient = RestClient.create("http://localhost:" + serverPort + "/studyspots/");
+        this.openRouteService = openRouteService;
     }
 
     @PostConstruct
@@ -80,18 +91,84 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
         try {
-            if (update.hasMessage() && update.getMessage().hasText()) {
-                long chatId = update.getMessage().getChatId();
-                if ("/start".equals(update.getMessage().getText())) {
-                    userSelections.remove(chatId);
-                    sendFacultyOptions(chatId);
+            if (update.hasMessage()) {
+                if (update.getMessage().hasLocation()) {
+                    handleLocation(update);
+                    return;
                 }
-            } else if (update.hasCallbackQuery()) {
+
+                if (update.getMessage().hasText()) {
+                    long chatId = update.getMessage().getChatId();
+                    if ("/start".equals(update.getMessage().getText())) {
+                        userSelections.remove(chatId);
+                        sendFacultyOptions(chatId);
+                    }
+                }
+
+                return;
+            }
+            if (update.hasCallbackQuery()) {
                 handleCallback(update);
+                return;
             }
         } catch (Exception exception) {
             exception.printStackTrace();
         }
+    }
+
+    private void handleLocation(Update update) throws Exception {
+        long chatId = update.getMessage().getChatId();
+
+        Map<String, String> selections = userSelections.computeIfAbsent(chatId, ignored -> new HashMap<>());
+
+        if (!"true".equals(selections.get("awaitingLocation"))) {
+            sendText(chatId, "Type /start and select Near me first.");
+            return;
+        }
+
+        Location location = update.getMessage().getLocation();
+
+        selections.put(
+                "userLatitude",
+                location.getLatitude().toString()
+        );
+
+        selections.put(
+                "userLongitude",
+                location.getLongitude().toString()
+        );
+
+        selections.remove("awaitingLocation");
+
+        removeLocationKeyboard(chatId, location);
+        try {
+            sendResults(chatId, selections);
+        } finally {
+            userSelections.remove(chatId);
+            facultyOptionsCache.remove(chatId);
+            buildingOptionsCache.remove(chatId);
+        }
+    }
+
+    private void removeLocationKeyboard(long chatId, Location location) throws Exception {
+        ReplyKeyboardRemove removeKeyboard
+                = ReplyKeyboardRemove.builder()
+                        .removeKeyboard(true)
+                        .build();
+
+        String messageText = "Location received.";
+
+        if (location.getHorizontalAccuracy() != null) {
+            messageText += "\nAccuracy: approximately "
+                    + Math.round(location.getHorizontalAccuracy())
+                    + " metres";
+        }
+
+        execute(SendMessage.builder()
+                .chatId(Long.toString(chatId))
+                .text(messageText)
+                .replyMarkup(removeKeyboard)
+                .build());
     }
 
     private void handleCallback(Update update) throws Exception {
@@ -130,6 +207,13 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 selections.put("library", "true");
                 sendText(chatId, "Selected location: Library");
                 sendNoiseOptions(chatId);
+            }
+
+            case "nearby" -> {
+                selections.clear();
+                selections.put("searchMode", "nearby");
+                selections.put("awaitingLocation", "true");
+                sendLocationRequest(chatId);
             }
             case "building" -> {
                 if (value.equals("any")) {
@@ -178,6 +262,31 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         }
     }
 
+    private void sendLocationRequest(long chatId) throws Exception {
+        KeyboardButton locationButton = KeyboardButton.builder()
+                .text("Share current location")
+                .requestLocation(true)
+                .build();
+
+        KeyboardRow row = new KeyboardRow();
+        row.add(locationButton);
+
+        ReplyKeyboardMarkup keyboard = ReplyKeyboardMarkup.builder()
+                .keyboard(List.of(row))
+                .resizeKeyboard(true)
+                .oneTimeKeyboard(true)
+                .inputFieldPlaceholder("Tap to share your location")
+                .build();
+
+        SendMessage message = SendMessage.builder()
+                .chatId(Long.toString(chatId))
+                .text("Please share your current location so I can find nearby study spots.")
+                .replyMarkup(keyboard)
+                .build();
+
+        execute(message);
+    }
+
     private void sendFacultyOptions(long chatId) throws Exception {
         List<String> faculties = restClient.get()
                 .uri("faculties")
@@ -195,6 +304,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             rows.add(List.of(button(faculties.get(i), "faculty:" + i)));
         }
         rows.add(List.of(button("Library", "library:any")));
+        rows.add(List.of(button("Near me", "nearby:start")));
 
         send(chatId,
                 "Welcome to ChargeStudy! 📚\n\nChoose a faculty or Library:",
@@ -390,19 +500,27 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     }
 
     private void sendResults(long chatId, Map<String, String> selections) throws Exception {
+        String searchMode = blankToNull(selections.get("searchMode"));
+        Double userLatitude = blankToDouble(selections.get("userLatitude"));
+        Double userLongitude = blankToDouble(selections.get("userLongitude"));
+        boolean isNearbySearch = "nearby".equals(searchMode);
         String faculty = blankToNull(selections.get("faculty"));
-        String building = blankToNull(selections.get("building"));
+        String buildingFilter = blankToNull(selections.get("building"));
         Boolean library = blankToBoolean(selections.get("library"));
         Boolean quiet = blankToBoolean(selections.get("quiet"));
         Boolean aircon = blankToBoolean(selections.get("aircon"));
         String socketQuantity = blankToNull(selections.get("socketQuantity"));
         Boolean withFriends = blankToBoolean(selections.get("withFriends"));
 
+        if (isNearbySearch && (userLatitude == null || userLongitude == null)) {
+            sendText(chatId, "I could not read your location. Type /start to search again.");
+            return;
+        }
         List<StudySpot> results = restClient.get()
                 .uri(uriBuilder -> uriBuilder
                 .path("recommend")
                 .queryParamIfPresent("faculty", Optional.ofNullable(faculty))
-                .queryParamIfPresent("building", Optional.ofNullable(building))
+                .queryParamIfPresent("building", Optional.ofNullable(buildingFilter))
                 .queryParamIfPresent("library", Optional.ofNullable(library))
                 .queryParamIfPresent("quiet", Optional.ofNullable(quiet))
                 .queryParamIfPresent("aircon", Optional.ofNullable(aircon))
@@ -418,6 +536,26 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             return;
         }
 
+        List<Building> buildings = results.stream()
+                .map(StudySpot::getBuilding)
+                .filter(building -> building != null)
+                .filter(building
+                        -> building.getLatitude() != null
+                && building.getLongitude() != null)
+                .collect(Collectors.toMap(
+                        Building::getId,
+                        building -> building,
+                        (first, duplicate) -> first
+                ))
+                .values()
+                .stream()
+                .toList();
+
+        Map<Long, WalkingRoute> walkingRoutesByBuildingId = isNearbySearch
+                ? calculateWalkingRoutes(
+                        chatId, userLatitude, userLongitude, buildings)
+                : Map.of();
+
         List<StudySpot> exactMatches = results.stream()
                 .filter(spot -> matchesPreferences(
                 spot, quiet, aircon, socketQuantity, withFriends))
@@ -431,23 +569,26 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                     .sorted(Comparator
                             .comparingInt((StudySpot spot) -> preferenceDistance(
                             spot, quiet, aircon, socketQuantity, withFriends))
+                            .thenComparingDouble(spot -> walkingDuration(spot, walkingRoutesByBuildingId))
                             .thenComparing(StudySpot::getName,
                                     Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                     .toList();
-            sendText(chatId,
-                    "✨ Here are your top recommendations");
+            sendText(chatId, isNearbySearch
+                    ? "Here are the 5 closest study spots to you."
+                    : "✨ Here are your top recommendations");
         } else {
             recommendations = results.stream()
                     .sorted(Comparator
                             .comparingInt((StudySpot spot) -> preferenceDistance(
                             spot, quiet, aircon, socketQuantity, withFriends))
+                            .thenComparingDouble(spot -> walkingDuration(spot, walkingRoutesByBuildingId))
                             .thenComparing(StudySpot::getName,
                                     Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                     .toList();
 
             String location = Boolean.TRUE.equals(library)
                     ? "Library"
-                    : building != null ? escape(building) : escape(faculty);
+                    : buildingFilter != null ? escape(buildingFilter) : escape(faculty);
 
             sendText(chatId,
                     "😔 No exact matches found \n\n"
@@ -462,10 +603,52 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                     ? null
                     : preferenceDifferences(
                             spot, quiet, aircon, socketQuantity, withFriends);
-            sendStudySpotCard(chatId, spot, differences);
+            WalkingRoute walkingRoute = walkingRoutesByBuildingId.get(
+                    spot.getBuilding().getId());
+            sendStudySpotCard(chatId, spot, differences, walkingRoute);
         }
 
         sendText(chatId, "Type /start to search again 🔎");
+    }
+
+    private double walkingDuration(
+            StudySpot spot,
+            Map<Long, WalkingRoute> routeByBuildingId) {
+
+        if (spot.getBuilding() == null) {
+            return Double.MAX_VALUE;
+        }
+
+        WalkingRoute route = routeByBuildingId.get(
+                spot.getBuilding().getId()
+        );
+
+        return route == null
+                ? Double.MAX_VALUE
+                : route.durationSeconds();
+    }
+
+    private Map<Long, WalkingRoute> calculateWalkingRoutes(
+            long chatId,
+            double userLatitude,
+            double userLongitude,
+            List<Building> buildings) throws Exception {
+        try {
+            return openRouteService.calculateWalkingRoutes(
+                    userLatitude,
+                    userLongitude,
+                    buildings
+            ).stream().collect(Collectors.toMap(
+                    WalkingRoute::buildingId,
+                    route -> route
+            ));
+        } catch (RuntimeException exception) {
+            exception.printStackTrace();
+            sendText(chatId,
+                    "Walking routes are temporarily unavailable. "
+                    + "Showing preference matches without distance.");
+            return Map.of();
+        }
     }
 
     private void send(long chatId, String text, List<List<InlineKeyboardButton>> rows) throws Exception {
@@ -488,7 +671,8 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     private void sendStudySpotCard(
             long chatId,
             StudySpot spot,
-            String preferenceDifferences) throws Exception {
+            String preferenceDifferences,
+            WalkingRoute walkingRoute) throws Exception {
         String caption = """
             📍 <b>%s</b>
             %s · %s
@@ -520,6 +704,11 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         if (preferenceDifferences != null && !preferenceDifferences.isBlank()) {
             caption += "\n\n⚠️ <b>Preference differences:</b> "
                     + escape(preferenceDifferences);
+        }
+
+        if (walkingRoute != null) {
+            caption += "\n🚶 <b>Walking:</b> "
+                    + walkingSummary(walkingRoute);
         }
 
         String mapsUrl = "https://www.google.com/maps/search/?api=1&query="
@@ -590,6 +779,19 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         return Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
+    private String walkingSummary(WalkingRoute route) {
+        long minutes = Math.max(
+                1,
+                (long) Math.ceil(route.durationSeconds() / 60.0)
+        );
+
+        String distance = route.distanceMeters() < 1000
+                ? Math.round(route.distanceMeters()) + " m"
+                : "%.1f km".formatted(route.distanceMeters() / 1000.0);
+
+        return distance + " · about " + minutes + " min";
+    }
+
     private InlineKeyboardButton button(String label, String callbackData) {
         return InlineKeyboardButton.builder().text(label).callbackData(callbackData).build();
     }
@@ -613,6 +815,10 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private Double blankToDouble(String value) {
+        return value == null || value.isBlank() ? null : Double.valueOf(value);
     }
 
     private Boolean blankToBoolean(String value) {

@@ -69,7 +69,7 @@ public class DataSeeder implements CommandLineRunner {
                         StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 9pm", true, "study-spot-images/Libraries/clb_L5.jpg"),
                 new StudySpot(null, "Central Library L3 & L4 Study Area Zones", centralLibrary, "Large collaborative spaces for group work, many sockets, nearby food options - The Deck, Anna Cafe",
                         StudySpot.Quantity.MANY, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 9pm", true, "study-spot-images/Libraries/clb_L4.jpg"),
-                new StudySpot(null, "Medici+neScience Library L3 Study Area Zones", medSciLibrary, "Multiple individual study areas and pods with power outlets, ideal for quiet individual study",
+                new StudySpot(null, "Medicine+Science Library L3 Study Area Zones", medSciLibrary, "Multiple individual study areas and pods with power outlets, ideal for quiet individual study",
                         StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, false, true, "9am - 6pm", true, "study-spot-images/Libraries/med_sci_L3.jpg"),
                 new StudySpot(null, "Medicine+Science Library L2 Study Area Zones", medSciLibrary, "Multiple 24 hrs individual study areas and pods with power outlets, ideal for quiet individual study",
                         StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, false, true, "24 hrs", true, "study-spot-images/Libraries/med_sci_L2.jpg"),
