@@ -340,10 +340,14 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 distance += 4;
             }
             distance += switch (spot.getSeatingCapacity()) {
-                case PLENTIFUL -> 0;
-                case MODERATE -> 1;
-                case LIMITED -> 2;
-                case null -> 3;
+                case PLENTIFUL ->
+                    0;
+                case MODERATE ->
+                    1;
+                case LIMITED ->
+                    2;
+                case null ->
+                    3;
             };
         }
 
@@ -376,7 +380,6 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                     + friendlyEnum(StudySpot.Quantity.valueOf(socketQuantity))
                     + ", available " + friendlyEnum(spot.getSocketQuantity()));
         }
-
 
         if (Boolean.TRUE.equals(withFriends)
                 && !Boolean.TRUE.equals(spot.getGroupStudyAllowed())) {
@@ -436,7 +439,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         } else {
             recommendations = results.stream()
                     .sorted(Comparator
-                             .comparingInt((StudySpot spot) -> preferenceDistance(
+                            .comparingInt((StudySpot spot) -> preferenceDistance(
                             spot, quiet, aircon, socketQuantity, withFriends))
                             .thenComparing(StudySpot::getName,
                                     Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
@@ -508,7 +511,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 friendlyEnum(spot.getSocketQuantity()),
                 friendlyEnum(spot.getSeatingCapacity()),
                 Boolean.TRUE.equals(spot.getGroupStudyAllowed())
-                        ? "Suitable" : "Not recommended",
+                ? "Suitable" : "Not recommended",
                 spot.isAirConditioned() ? "Yes" : "No",
                 escape(spot.getOpeningHours()),
                 spot.isFoodNearby() ? "Yes" : "No"
@@ -520,7 +523,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         }
 
         String mapsUrl = "https://www.google.com/maps/search/?api=1&query="
-                + spot.getLatitude() + "," + spot.getLongitude();
+                + spot.getBuilding().getLatitude() + "," + spot.getBuilding().getLongitude();
 
         InlineKeyboardButton mapsButton = InlineKeyboardButton.builder()
                 .text("🗺 Open in Maps")

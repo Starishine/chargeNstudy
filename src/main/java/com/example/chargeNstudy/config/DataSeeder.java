@@ -40,47 +40,47 @@ public class DataSeeder implements CommandLineRunner {
 
         Faculty computing = getOrCreateFaculty("School of Computing");
 
-        Building com1 = getOrCreateBuilding(computing, "COM1");
-        Building com2 = getOrCreateBuilding(computing, "COM2");
-        Building com3 = getOrCreateBuilding(computing, "COM3");
-        Building centralLibrary = getOrCreateLibrary("Central Library");
-        Building medSciLibrary = getOrCreateLibrary("Medicine+Science Library");
-        Building cjKohLibrary = getOrCreateLibrary("C J Koh Law Library");
-        Building wanBooSowChineseLibrary = getOrCreateLibrary("Wan Boo Sow Chinese Library");
-        Building musicLibrary = getOrCreateLibrary("Music Library");
+        Building com1 = getOrCreateBuilding(computing, "COM1", 1.2955136, 103.7728753);
+        Building com2 = getOrCreateBuilding(computing, "COM2", 1.2943538, 103.7741141);
+        Building com3 = getOrCreateBuilding(computing, "COM3", 1.2943495, 103.7741492);
+        Building centralLibrary = getOrCreateLibrary("Central Library", 1.2965182, 103.7682741);
+        Building medSciLibrary = getOrCreateLibrary("Medicine+Science Library", 1.2969518, 103.7813775);
+        Building cjKohLibrary = getOrCreateLibrary("C J Koh Law Library", 1.3071219, 103.7699999);
+        Building wanBooSowChineseLibrary = getOrCreateLibrary("Wan Boo Sow Chinese Library", 1.2965182, 103.7682741);
+        Building musicLibrary = getOrCreateLibrary("Music Library", 1.3014607, 103.773578);
 
         removeLegacyLibraryFaculty();
 
         List<StudySpot> spots = List.of(
                 // -- School of Computing --
                 new StudySpot(null, "COM1 Basement", com1, "Cold aircon, moderate noise, ~1 socket per long table, good for group work, near food options - The Deck, The Terrace",
-                        1.2955136, 103.7728753, StudySpot.Quantity.FEW, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.MODERATE, true,
+                        StudySpot.Quantity.FEW, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.MODERATE, true,
                         true, "8am - 6pm", true, "study-spot-images/SoC/com1_b1.png"),
                 new StudySpot(null, "COM1 Level 2", com1, "Cold aircon, quiet environment, sockets mounted on walls, near food options - The Deck, The Terrace, good for individual work and quiet group discussions",
-                        1.2955136, 103.7728753, StudySpot.Quantity.MODERATE, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.MODERATE, true, true, "24 hours", true, "study-spot-images/SoC/com1_level2.png"),
+                        StudySpot.Quantity.MODERATE, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.MODERATE, true, true, "24 hours", true, "study-spot-images/SoC/com1_level2.png"),
                 new StudySpot(null, "The Terrace", com3, "Open canteen, very lively, some sockets mounted on tables, good for casual study and socializing",
-                        1.2943495, 103.7741492, StudySpot.Quantity.MODERATE, StudySpot.NoiseLevel.LOUD, StudySpot.SeatingCapacity.PLENTIFUL, true, false, "24 hours", true, "study-spot-images/SoC/com3_terrace.png"),
+                        StudySpot.Quantity.MODERATE, StudySpot.NoiseLevel.LOUD, StudySpot.SeatingCapacity.PLENTIFUL, true, false, "24 hours", true, "study-spot-images/SoC/com3_terrace.png"),
                 new StudySpot(null, "Wooden Benches around COM2", com2, "Open wooden benches, nature-friendly environment, very few sockets - some on the wall, great for group discussions & casual study, near CoolSpot and The Terrace",
-                        1.2943538, 103.7741141, StudySpot.Quantity.FEW, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.LIMITED, true, false, "24 hours", true, "study-spot-images/SoC/com2_wooden_benches.png"),
+                        StudySpot.Quantity.FEW, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.LIMITED, true, false, "24 hours", true, "study-spot-images/SoC/com2_wooden_benches.png"),
                 // -- Libraries --
                 new StudySpot(null, "Central Library L6 Study Area Zones", centralLibrary, "Multiple individual study cubicles and desks, many sockets, nearby food options - The Deck, Anna Cafe",
-                        1.2965182, 103.773145, StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 9pm", true, "study-spot-images/Libraries/clb_L6.jpg"),
+                        StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, false, true, "9am - 9pm", true, "study-spot-images/Libraries/clb_L6.jpg"),
                 new StudySpot(null, "Central Library L5 Study Area Zones", centralLibrary, "Larger desks for quiet group study, comfortable cushion sofas, many sockets, nearby food options - The Deck, Anna Cafe",
-                        1.2965182, 103.773145, StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 9pm", true, "study-spot-images/Libraries/clb_L5.jpg"),
+                        StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 9pm", true, "study-spot-images/Libraries/clb_L5.jpg"),
                 new StudySpot(null, "Central Library L3 & L4 Study Area Zones", centralLibrary, "Large collaborative spaces for group work, many sockets, nearby food options - The Deck, Anna Cafe",
-                        1.2965182, 103.773145, StudySpot.Quantity.MANY, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 9pm", true, "study-spot-images/Libraries/clb_L4.jpg"),
+                        StudySpot.Quantity.MANY, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 9pm", true, "study-spot-images/Libraries/clb_L4.jpg"),
                 new StudySpot(null, "Medici+neScience Library L3 Study Area Zones", medSciLibrary, "Multiple individual study areas and pods with power outlets, ideal for quiet individual study",
-                        1.2969518, 103.7788026, StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, false, true, "9am - 6pm", true, "study-spot-images/Libraries/med_sci_L3.jpg"),
+                        StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, false, true, "9am - 6pm", true, "study-spot-images/Libraries/med_sci_L3.jpg"),
                 new StudySpot(null, "Medicine+Science Library L2 Study Area Zones", medSciLibrary, "Multiple 24 hrs individual study areas and pods with power outlets, ideal for quiet individual study",
-                        1.2969518, 103.7788026, StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, false, true, "24 hrs", true, "study-spot-images/Libraries/med_sci_L2.jpg"),
+                        StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, false, true, "24 hrs", true, "study-spot-images/Libraries/med_sci_L2.jpg"),
                 new StudySpot(null, "C J Koh Law Library L1 Study Area Zones", cjKohLibrary, "Warm, wood-paneled study area with spacious tables, ample seating, and multiple power outlets.",
-                        1.3071219, 103.7699999, StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 6pm", true, "study-spot-images/Libraries/cj_koh_law_L1.jpg"),
+                        StudySpot.Quantity.MANY, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 6pm", true, "study-spot-images/Libraries/cj_koh_law_L1.jpg"),
                 new StudySpot(null, "C J Koh Law Library L2 Study Area Zones", cjKohLibrary, "Spacious study area with large tables and ample seating, multiple sockets, ideal for group discussions and collaborative study.",
-                        1.3071219, 103.7699999, StudySpot.Quantity.MANY, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 6pm", true, "study-spot-images/Libraries/cj_koh_law_L2.jpg"),
+                        StudySpot.Quantity.MANY, StudySpot.NoiseLevel.MODERATE, StudySpot.SeatingCapacity.PLENTIFUL, true, true, "9am - 6pm", true, "study-spot-images/Libraries/cj_koh_law_L2.jpg"),
                 new StudySpot(null, "Wan Boo Sow Chinese Library L1 Study Area Zones", wanBooSowChineseLibrary, "Individual study desks and tables with power outlets, quiet environment, ideal for focused study.",
-                        1.3071219, 103.7699999, StudySpot.Quantity.MODERATE, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.MODERATE, false, true, "9am - 8pm", true, "study-spot-images/Libraries/wan_boo_sow_L1.jpg"),
+                        StudySpot.Quantity.MODERATE, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.MODERATE, false, true, "9am - 8pm", true, "study-spot-images/Libraries/wan_boo_sow_L1.jpg"),
                 new StudySpot(null, "Music Library L2", musicLibrary, "Simple small study area with a few tables and chairs, quiet environment, good for individual study",
-                        1.301819, 103.770743, StudySpot.Quantity.FEW, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.LIMITED, false, true, "9am - 6pm", true, "study-spot-images/Libraries/music_L2.jpg")
+                        StudySpot.Quantity.FEW, StudySpot.NoiseLevel.QUIET, StudySpot.SeatingCapacity.LIMITED, false, true, "9am - 6pm", true, "study-spot-images/Libraries/music_L2.jpg")
         );
 
         int inserted = 0;
@@ -105,16 +105,6 @@ public class DataSeeder implements CommandLineRunner {
 
             if (current.getSocketQuantity() == null && spot.getSocketQuantity() != null) {
                 current.setSocketQuantity(spot.getSocketQuantity());
-                changed = true;
-            }
-
-            if (!Objects.equals(current.getLatitude(), spot.getLatitude())) {
-                current.setLatitude(spot.getLatitude());
-                changed = true;
-            }
-
-            if (!Objects.equals(current.getLongitude(), spot.getLongitude())) {
-                current.setLongitude(spot.getLongitude());
                 changed = true;
             }
 
@@ -158,9 +148,9 @@ public class DataSeeder implements CommandLineRunner {
                 "ALTER TABLE building ALTER COLUMN faculty_id DROP NOT NULL");
     }
 
-    private Building getOrCreateBuilding(Faculty faculty, String name) {
+    private Building getOrCreateBuilding(Faculty faculty, String name, Double latitude, Double longitude) {
         Building building = buildingRepository.findByFacultyAndName(faculty, name)
-                .orElseGet(() -> buildingRepository.save(new Building(faculty, name)));
+                .orElseGet(() -> buildingRepository.save(new Building(faculty, name, latitude, longitude)));
 
         if (building.getCategory() != Building.Category.FACULTY) {
             building.setCategory(Building.Category.FACULTY);
@@ -170,10 +160,10 @@ public class DataSeeder implements CommandLineRunner {
         return building;
     }
 
-    private Building getOrCreateLibrary(String name) {
+    private Building getOrCreateLibrary(String name, Double latitude, Double longitude) {
         Building building = buildingRepository.findByName(name)
                 .orElseGet(() -> buildingRepository.save(
-                new Building(name, Building.Category.LIBRARY)));
+                new Building(name, Building.Category.LIBRARY, latitude, longitude)));
 
         boolean changed = false;
         if (building.getFaculty() != null) {

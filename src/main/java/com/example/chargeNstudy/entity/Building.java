@@ -34,18 +34,25 @@ public class Building {
     @Enumerated(EnumType.STRING)
     private Category category;
 
+    private Double latitude;
+    private Double longitude;
+
     public Building() {
     }
 
-    public Building(Faculty faculty, String name) {
+    public Building(Faculty faculty, String name, Double latitude, Double longitude) {
         this.faculty = faculty;
         this.name = name;
+        this.latitude = latitude;
+        this.longitude = longitude;
         this.category = Category.FACULTY;
     }
 
-    public Building(String name, Category category) {
+    public Building(String name, Category category, Double latitude, Double longitude) {
         this.name = name;
         this.category = category;
+        this.latitude = latitude;
+        this.longitude = longitude;
     }
 
     public Long getId() {
@@ -78,6 +85,22 @@ public class Building {
 
     public void setCategory(Category category) {
         this.category = category;
+    }
+
+    public Double getLatitude() {
+        return latitude;
+    }
+
+    public void setLatitude(Double latitude) {
+        this.latitude = latitude;
+    }
+
+    public Double getLongitude() {
+        return longitude;
+    }
+
+    public void setLongitude(Double longitude) {
+        this.longitude = longitude;
     }
 
 }

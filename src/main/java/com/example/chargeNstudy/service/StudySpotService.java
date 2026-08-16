@@ -6,9 +6,9 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import com.example.chargeNstudy.entity.StudySpot;
-import com.example.chargeNstudy.repository.StudySpotRepository;
 import com.example.chargeNstudy.repository.BuildingRepository;
 import com.example.chargeNstudy.repository.FacultyRepository;
+import com.example.chargeNstudy.repository.StudySpotRepository;
 
 @Service
 public class StudySpotService {
@@ -54,8 +54,6 @@ public class StudySpotService {
         existing.setName(updatedSpot.getName());
         existing.setBuilding(updatedSpot.getBuilding());
         existing.setDescription(updatedSpot.getDescription());
-        existing.setLatitude(updatedSpot.getLatitude());
-        existing.setLongitude(updatedSpot.getLongitude());
         existing.setSocketQuantity(updatedSpot.getSocketQuantity());
         existing.setNoiseLevel(updatedSpot.getNoiseLevel());
         existing.setAirConditioned(updatedSpot.isAirConditioned());

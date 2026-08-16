@@ -49,9 +49,6 @@ public class StudySpot {
 
     private String description;
 
-    private Double latitude;
-    private Double longitude;
-
     @Enumerated(EnumType.STRING)
     private Quantity socketQuantity;
 
@@ -73,8 +70,6 @@ public class StudySpot {
             String name,
             Building building,
             String description,
-            Double latitude,
-            Double longitude,
             Quantity socketQuantity,
             NoiseLevel noiseLevel,
             SeatingCapacity seatingCapacity,
@@ -87,8 +82,6 @@ public class StudySpot {
         this.name = name;
         this.building = building;
         this.description = description;
-        this.latitude = latitude;
-        this.longitude = longitude;
         this.socketQuantity = socketQuantity;
         this.noiseLevel = noiseLevel;
         this.seatingCapacity = seatingCapacity;
