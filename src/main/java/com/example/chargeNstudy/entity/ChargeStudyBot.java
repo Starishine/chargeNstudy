@@ -93,6 +93,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         try {
             if (update.hasMessage()) {
                 if (update.getMessage().hasLocation()) {
+                    System.out.println("Received location from user: " + update.getMessage().getLocation());
                     handleLocation(update);
                     return;
                 }
