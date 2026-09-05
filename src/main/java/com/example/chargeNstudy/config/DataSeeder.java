@@ -43,23 +43,23 @@ public class DataSeeder implements CommandLineRunner {
         Faculty business = getOrCreateFaculty("NUS Business School");
         Faculty Utown = getOrCreateFaculty("University Town");
         // SoC
-        Building com1 = getOrCreateBuilding(computing, "COM1", 1.2955136, 103.7728753);
-        Building com2 = getOrCreateBuilding(computing, "COM2", 1.2943538, 103.7741141);
-        Building com3 = getOrCreateBuilding(computing, "COM3", 1.2943495, 103.7741492);
+        Building com1 = getOrCreateBuilding(computing, "COM1", 1.2955136, 103.7728753, "ChIJW-fkx_ga2jERSjkkKeJjaUM");
+        Building com2 = getOrCreateBuilding(computing, "COM2", 1.2943538, 103.7741141, "ChIJRafctPga2jER8aiJ3XzHihM");
+        Building com3 = getOrCreateBuilding(computing, "COM3", 1.2943495, 103.7741492, "ChIJDaepEXwb2jERkTGBc74buCE");
         // FASS
-        Building as1 = getOrCreateBuilding(fass, "AS1", 1.2965182, 103.7682741);
-        Building as8 = getOrCreateBuilding(fass, "AS8", 1.2965182, 103.7682741);
+        Building as1 = getOrCreateBuilding(fass, "AS1", 1.2965182, 103.7682741, "ChIJzXNwdFYa2jERFFwrojxzcVQ");
+        Building as8 = getOrCreateBuilding(fass, "AS8", 1.2965182, 103.7682741, "ChIJB9oi5zAX2jERPO8sd5tVob0");
         // Libraries
-        Building centralLibrary = getOrCreateLibrary("Central Library", 1.2965182, 103.7682741);
-        Building medSciLibrary = getOrCreateLibrary("Medicine+Science Library", 1.2969518, 103.7813775);
-        Building cjKohLibrary = getOrCreateLibrary("C J Koh Law Library", 1.3071219, 103.7699999);
-        Building wanBooSowChineseLibrary = getOrCreateLibrary("Wan Boo Sow Chinese Library", 1.2965182, 103.7682741);
-        Building musicLibrary = getOrCreateLibrary("Music Library", 1.3014607, 103.773578);
+        Building centralLibrary = getOrCreateLibrary("Central Library", 1.2965182, 103.7682741, "ChIJzQxH-Pga2jERBzWDbYXqrl4");
+        Building medSciLibrary = getOrCreateLibrary("Medicine+Science Library", 1.2969518, 103.7813775, "ChIJSeGJ8lIb2jERMya465gPFYU");
+        Building cjKohLibrary = getOrCreateLibrary("C J Koh Law Library", 1.3071219, 103.7699999, "ChIJ46rtGQMa2jERAn1YUJjCyH8");
+        Building wanBooSowChineseLibrary = getOrCreateLibrary("Wan Boo Sow Chinese Library", 1.2965182, 103.7682741, "ChIJzQxH-Pga2jERBzWDbYXqrl4");
+        Building musicLibrary = getOrCreateLibrary("Music Library", 1.3014607, 103.773578, "ChIJZ9HEX_Ya2jERi2N5S_3VrUg");
         // Biz2 
-        Building biz2 = getOrCreateBuilding(business, "Biz2", 1.293463, 103.7722666);
+        Building biz2 = getOrCreateBuilding(business, "Biz2", 1.293463, 103.7722666, "ChIJyZQi-FUa2jERnuxGL51dmnQ");
         // Utown
-        Building utownPlaza = getOrCreateBuilding(Utown, "UTown Plaza/Stephen Riady Centre", 1.304855, 103.7707347);
-        Building erc = getOrCreateBuilding(Utown, "Education Resource Centre", 1.3060164, 103.7706057);
+        Building utownPlaza = getOrCreateBuilding(Utown, "UTown Plaza/Stephen Riady Centre", 1.304855, 103.7707347, "ChIJ0U4Q6m4b2jERDEAseV3tNmM");
+        Building erc = getOrCreateBuilding(Utown, "Education Resource Centre", 1.3060164, 103.7706057, "ChIJT-e8B_Ua2jERGeUtjN0-qlM");
 
         removeLegacyLibraryFaculty();
 
@@ -191,9 +191,9 @@ public class DataSeeder implements CommandLineRunner {
                 "ALTER TABLE building ALTER COLUMN faculty_id DROP NOT NULL");
     }
 
-    private Building getOrCreateBuilding(Faculty faculty, String name, Double latitude, Double longitude) {
+    private Building getOrCreateBuilding(Faculty faculty, String name, Double latitude, Double longitude, String googlePlaceId) {
         Building building = buildingRepository.findByFacultyAndName(faculty, name)
-                .orElseGet(() -> buildingRepository.save(new Building(faculty, name, latitude, longitude)));
+                .orElseGet(() -> buildingRepository.save(new Building(faculty, name, latitude, longitude, googlePlaceId)));
 
         if (building.getCategory() != Building.Category.FACULTY) {
             building.setCategory(Building.Category.FACULTY);
@@ -203,10 +203,10 @@ public class DataSeeder implements CommandLineRunner {
         return building;
     }
 
-    private Building getOrCreateLibrary(String name, Double latitude, Double longitude) {
+    private Building getOrCreateLibrary(String name, Double latitude, Double longitude, String googlePlaceId) {
         Building building = buildingRepository.findByName(name)
                 .orElseGet(() -> buildingRepository.save(
-                new Building(name, Building.Category.LIBRARY, latitude, longitude)));
+                new Building(name, Building.Category.LIBRARY, latitude, longitude, googlePlaceId)));
 
         boolean changed = false;
         if (building.getFaculty() != null) {

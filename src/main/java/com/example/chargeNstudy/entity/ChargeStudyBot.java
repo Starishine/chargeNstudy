@@ -713,7 +713,11 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         }
 
         String mapsUrl = "https://www.google.com/maps/search/?api=1&query="
-                + spot.getBuilding().getLatitude() + "," + spot.getBuilding().getLongitude();
+                + spot.getBuilding().getLatitude()
+                + "%2C"
+                + spot.getBuilding().getLongitude()
+                + "&query_place_id="
+                + spot.getBuilding().getGooglePlaceId();
 
         InlineKeyboardButton mapsButton = InlineKeyboardButton.builder()
                 .text("🗺 Open in Maps")

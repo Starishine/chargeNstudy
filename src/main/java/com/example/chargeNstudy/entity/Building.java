@@ -36,23 +36,26 @@ public class Building {
 
     private Double latitude;
     private Double longitude;
+    private String googlePlaceId;
 
     public Building() {
     }
 
-    public Building(Faculty faculty, String name, Double latitude, Double longitude) {
+    public Building(Faculty faculty, String name, Double latitude, Double longitude, String googlePlaceId) {
         this.faculty = faculty;
         this.name = name;
         this.latitude = latitude;
         this.longitude = longitude;
+        this.googlePlaceId = googlePlaceId;
         this.category = Category.FACULTY;
     }
 
-    public Building(String name, Category category, Double latitude, Double longitude) {
+    public Building(String name, Category category, Double latitude, Double longitude, String googlePlaceId) {
         this.name = name;
         this.category = category;
         this.latitude = latitude;
         this.longitude = longitude;
+        this.googlePlaceId = googlePlaceId;
     }
 
     public Long getId() {
@@ -103,4 +106,11 @@ public class Building {
         this.longitude = longitude;
     }
 
+    public String getGooglePlaceId() {
+        return googlePlaceId;
+    }
+
+    public void setGooglePlaceId(String googlePlaceId) {
+        this.googlePlaceId = googlePlaceId;
+    }
 }
