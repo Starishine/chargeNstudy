@@ -6,6 +6,7 @@ target/
 
 ### STS ###
 .env
+.env.local
 .apt_generated
 .classpath
 .factorypath

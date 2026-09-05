@@ -35,21 +35,6 @@ public class StudySpotController {
         return studySpotService.getById(id);
     }
 
-    @PostMapping
-    public StudySpot create(@RequestBody StudySpot spot) {
-        return studySpotService.create(spot);
-    }
-
-    @PutMapping("/{id}")
-    public StudySpot update(@PathVariable Long id, @RequestBody StudySpot spot) {
-        return studySpotService.update(id, spot);
-    }
-
-    @DeleteMapping("/{id}")
-    public void delete(@PathVariable Long id) {
-        studySpotService.delete(id);
-    }
-
     @GetMapping("/faculties")
     public List<String> getFaculties() {
         return studySpotService.getFaculties();
