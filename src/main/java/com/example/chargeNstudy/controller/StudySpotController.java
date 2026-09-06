@@ -2,12 +2,8 @@ package com.example.chargeNstudy.controller;
 
 import java.util.List;
 
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,21 +29,6 @@ public class StudySpotController {
     @GetMapping("/{id}")
     public StudySpot getById(@PathVariable Long id) {
         return studySpotService.getById(id);
-    }
-
-    @PostMapping
-    public StudySpot create(@RequestBody StudySpot spot) {
-        return studySpotService.create(spot);
-    }
-
-    @PutMapping("/{id}")
-    public StudySpot update(@PathVariable Long id, @RequestBody StudySpot spot) {
-        return studySpotService.update(id, spot);
-    }
-
-    @DeleteMapping("/{id}")
-    public void delete(@PathVariable Long id) {
-        studySpotService.delete(id);
     }
 
     @GetMapping("/faculties")
