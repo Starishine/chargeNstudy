@@ -22,6 +22,7 @@ import org.springframework.web.util.HtmlUtils;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Location;
+import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
@@ -108,6 +109,10 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     public void onUpdateReceived(Update update) {
         try {
             if (update.hasMessage()) {
+                if (update.getMessage().hasPhoto()) {
+                    handleSubmissionPhoto(update);
+                    return;
+                }
                 if (update.getMessage().hasLocation()) {
                     long userId = update.getMessage().getFrom().getId();
                     Optional<StudySpotSubmission> draft = submissionService.findActiveDraft(userId);
@@ -163,6 +168,26 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             exception.printStackTrace();
             sendSubmissionError(update, "Something went wrong. Please try again.");
         }
+    }
+
+    private void handleSubmissionPhoto(Update update) throws Exception {
+        long userId = update.getMessage().getFrom().getId();
+        long chatId = update.getMessage().getChatId();
+        Optional<StudySpotSubmission> activeDraft = submissionService.findActiveDraft(userId);
+        if (activeDraft.isEmpty()) {
+            sendText(chatId, "Type /addspot to start a study spot submission before sending a photo.");
+            return;
+        }
+        StudySpotSubmission draft = activeDraft.get();
+        if (draft.getCurrentStep() != StudySpotSubmission.Step.REVIEWING
+                || Boolean.TRUE.equals(draft.getPhotoStepCompleted())) {
+            promptForSubmissionStep(chatId, draft);
+            return;
+        }
+        PhotoSize photo = update.getMessage().getPhoto().stream()
+                .max(Comparator.comparingLong(size -> (long) size.getWidth() * size.getHeight()))
+                .orElseThrow(() -> new IllegalArgumentException("Please send a valid photo."));
+        promptForSubmissionStep(chatId, submissionService.setPhoto(userId, photo.getFileId()));
     }
 
     private void handleSubmissionLocation(Update update) throws Exception {
@@ -307,7 +332,12 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             case "submit_food" -> {
                 StudySpotSubmission draft = submissionService.setFoodNearby(
                         userId, Boolean.parseBoolean(value));
-                sendSubmissionPreview(chatId, draft);
+                promptForSubmissionStep(chatId, draft);
+            }
+            case "submit_photo" -> {
+                if ("skip".equals(value)) {
+                    promptForSubmissionStep(chatId, submissionService.skipPhoto(userId));
+                }
             }
             case "submit_confirm" -> {
                 if ("yes".equals(value)) {
@@ -491,7 +521,14 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             case ENTERING_OPENING_HOURS -> sendText(chatId,
                     "What are the opening hours? For example: 8am - 10pm");
             case SELECTING_FOOD_NEARBY -> sendSubmissionFoodOptions(chatId);
-            case REVIEWING -> sendSubmissionPreview(chatId, draft);
+            case REVIEWING -> {
+                if (Boolean.TRUE.equals(draft.getPhotoStepCompleted())) {
+                    sendSubmissionPreview(chatId, draft);
+                } else {
+                    send(chatId, "Send a photo of this study spot, or skip this step.", List.of(
+                            List.of(button("Skip photo", "submit_photo:skip"))));
+                }
+            }
             case COMPLETED -> sendText(chatId,
                     "This submission is complete. Type /addspot to start another one.");
         }
@@ -618,6 +655,13 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     private void sendSubmissionPreview(
             long chatId,
             StudySpotSubmission draft) throws Exception {
+        if (draft.getImageUrl() != null && !draft.getImageUrl().isBlank()) {
+            execute(SendPhoto.builder()
+                    .chatId(Long.toString(chatId))
+                    .photo(new InputFile(draft.getImageUrl()))
+                    .caption("Study spot photo")
+                    .build());
+        }
         String preview = "Review your submission\n\n"
                 + "Name: " + draft.getName() + "\n"
                 + "Building: " + (draft.getBuilding() == null
@@ -631,6 +675,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 + "Group study: " + yesNo(draft.getGroupStudyAllowed()) + "\n"
                 + "Opening hours: " + draft.getOpeningHours() + "\n"
                 + "Food nearby: " + yesNo(draft.getFoodNearby()) + "\n"
+                + "Photo: " + (draft.getImageUrl() == null ? "Skipped" : "Attached") + "\n"
                 + "Location: " + draft.getLatitude() + ", " + draft.getLongitude()
                 + "\n\nYour submission will be reviewed before appearing publicly.";
 

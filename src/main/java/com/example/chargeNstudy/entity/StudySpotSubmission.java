@@ -85,6 +85,11 @@ public class StudySpotSubmission {
     private String openingHours;
     private Boolean foodNearby;
 
+    // Stores a Telegram photo file_id rather than a public image URL.
+    @Column(length = 1024)
+    private String imageUrl;
+    private Boolean photoStepCompleted;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Status status;

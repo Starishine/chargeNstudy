@@ -138,7 +138,51 @@ class StudySpotSubmissionServiceTest {
         verifyNoInteractions(buildings, faculties);
     }
 
+    @Test
+    void photoFileIdStaysInPendingSubmissionImageUrl() {
+        service.startUnlistedBuilding(7L, "other");
+        service.setNewFacultyName(7L, "Kent Ridge");
+        service.setNewBuildingName(7L, "LT27");
+        service.setLocation(7L, 1.3, 103.8);
+        completeDetails(false);
+        assertThrows(IllegalStateException.class, () -> service.submit(7L));
+        assertThrows(IllegalArgumentException.class, () -> service.setPhoto(7L, " "));
+        service.setPhoto(7L, "telegram-photo-file-id");
+        service.submit(7L);
+        assertEquals("telegram-photo-file-id", draft.getImageUrl());
+        assertTrue(draft.getPhotoStepCompleted());
+        assertEquals(StudySpotSubmission.Status.PENDING, draft.getStatus());
+        verifyNoInteractions(buildings, faculties);
+    }
+
+    @Test
+    void skippedPhotoRemainsOptionalAndCannotBeChangedByStaleButtons() {
+        service.startUnlistedBuilding(7L, "library");
+        service.setNewBuildingName(7L, "New Library");
+        service.setLocation(7L, 1.3, 103.8);
+        completeDetails(false);
+        assertFalse(draft.getPhotoStepCompleted());
+        service.skipPhoto(7L);
+        assertNull(draft.getImageUrl());
+        assertThrows(IllegalStateException.class, () -> service.skipPhoto(7L));
+        assertThrows(IllegalStateException.class, () -> service.setPhoto(7L, "late-photo"));
+        service.submit(7L);
+        assertEquals(StudySpotSubmission.Status.PENDING, draft.getStatus());
+    }
+
+    @Test
+    void photoCannotBypassEarlierSubmissionSteps() {
+        assertThrows(IllegalStateException.class, () -> service.setPhoto(7L, "photo-id"));
+        assertThrows(IllegalStateException.class, () -> service.skipPhoto(7L));
+        assertNull(draft.getImageUrl());
+        verifyNoInteractions(buildings, faculties);
+    }
+
     private void completeDetails() {
+        completeDetails(true);
+    }
+
+    private void completeDetails(boolean skipPhoto) {
         draft.setName("Level 2 study area");
         service.setDescription(7L, "Study tables near the entrance");
         service.setSocketQuantity(7L, StudySpot.Quantity.MANY);
@@ -148,5 +192,8 @@ class StudySpotSubmissionServiceTest {
         service.setGroupStudyAllowed(7L, true);
         service.setOpeningHours(7L, "8am - 10pm");
         service.setFoodNearby(7L, true);
+        if (skipPhoto) {
+            service.skipPhoto(7L);
+        }
     }
 }

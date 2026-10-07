@@ -9,9 +9,11 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Sort;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Chat;
 import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
@@ -35,6 +37,7 @@ class ChargeStudyBotSubmissionTest {
         bot = spy(new ChargeStudyBot("test-token", "test-bot", 8081,
                 mock(OpenRouteService.class), submissions, buildings));
         doReturn(new Message()).when(bot).execute(any(SendMessage.class));
+        doReturn(new Message()).when(bot).execute(any(SendPhoto.class));
         doReturn(true).when(bot).execute(any(AnswerCallbackQuery.class));
         draft = new StudySpotSubmission();
         draft.setCurrentStep(StudySpotSubmission.Step.SELECTING_BUILDING);
@@ -91,6 +94,66 @@ class ChargeStudyBotSubmissionTest {
         click("submit_area:1");
         assertTrue(sentMessage().getText().startsWith("Briefly describe the study spot."));
         verifyNoInteractions(buildings);
+    }
+
+    @Test
+    void photoSavesLargestVersionAndShowsItInPreview() throws Exception {
+        draft.setCurrentStep(StudySpotSubmission.Step.REVIEWING);
+        draft.setNewBuildingName("LT27");
+        when(submissions.setPhoto(7L, "large-file-id")).thenAnswer(call -> {
+            draft.setImageUrl("large-file-id");
+            draft.setPhotoStepCompleted(true);
+            return draft;
+        });
+        sendPhotos();
+        verify(submissions).setPhoto(7L, "large-file-id");
+        ArgumentCaptor<SendPhoto> photo = ArgumentCaptor.forClass(SendPhoto.class);
+        verify(bot).execute(photo.capture());
+        assertEquals("large-file-id", photo.getValue().getPhoto().getAttachName());
+        assertTrue(sentMessage().getText().contains("Photo: Attached"));
+    }
+
+    @Test
+    void skipPhotoShowsPreviewWithoutSendingPhoto() throws Exception {
+        draft.setCurrentStep(StudySpotSubmission.Step.REVIEWING);
+        draft.setNewBuildingName("LT27");
+        when(submissions.skipPhoto(7L)).thenAnswer(call -> {
+            draft.setPhotoStepCompleted(true);
+            return draft;
+        });
+        click("submit_photo:skip");
+        assertTrue(sentMessage().getText().contains("Photo: Skipped"));
+        verify(bot, never()).execute(any(SendPhoto.class));
+    }
+
+    @Test
+    void prematurePhotoRepeatsCurrentPromptWithoutSavingIt() throws Exception {
+        draft.setCurrentStep(StudySpotSubmission.Step.ENTERING_DESCRIPTION);
+        sendPhotos();
+        verify(submissions, never()).setPhoto(anyLong(), anyString());
+        assertTrue(sentMessage().getText().startsWith("Briefly describe"));
+    }
+
+    private void sendPhotos() {
+        Chat chat = new Chat();
+        chat.setId(8L);
+        User user = new User();
+        user.setId(7L);
+        Message message = new Message();
+        message.setChat(chat);
+        message.setFrom(user);
+        PhotoSize small = new PhotoSize();
+        small.setFileId("small-file-id");
+        small.setWidth(100);
+        small.setHeight(100);
+        PhotoSize large = new PhotoSize();
+        large.setFileId("large-file-id");
+        large.setWidth(1000);
+        large.setHeight(1000);
+        message.setPhoto(List.of(large, small));
+        Update update = new Update();
+        update.setMessage(message);
+        bot.onUpdateReceived(update);
     }
 
     private Building building(long id, String name, Faculty faculty) {

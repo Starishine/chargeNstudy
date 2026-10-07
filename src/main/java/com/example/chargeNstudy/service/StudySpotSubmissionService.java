@@ -256,14 +256,44 @@ public class StudySpotSubmissionService {
         StudySpotSubmission draft = requireDraftAtStep(
                 userId, StudySpotSubmission.Step.SELECTING_FOOD_NEARBY);
         draft.setFoodNearby(foodNearby);
+        draft.setImageUrl(null);
+        draft.setPhotoStepCompleted(false);
         draft.setCurrentStep(StudySpotSubmission.Step.REVIEWING);
         return submissionRepository.save(draft);
+    }
+
+    public StudySpotSubmission setPhoto(long userId, String fileId) {
+        StudySpotSubmission draft = requirePhotoDraft(userId);
+        if (fileId == null || fileId.isBlank() || fileId.length() > 1024) {
+            throw new IllegalArgumentException("Please send a valid study spot photo.");
+        }
+        draft.setImageUrl(fileId);
+        draft.setPhotoStepCompleted(true);
+        return submissionRepository.save(draft);
+    }
+
+    public StudySpotSubmission skipPhoto(long userId) {
+        StudySpotSubmission draft = requirePhotoDraft(userId);
+        draft.setImageUrl(null);
+        draft.setPhotoStepCompleted(true);
+        return submissionRepository.save(draft);
+    }
+
+    private StudySpotSubmission requirePhotoDraft(long userId) {
+        StudySpotSubmission draft = requireDraftAtStep(userId, StudySpotSubmission.Step.REVIEWING);
+        if (Boolean.TRUE.equals(draft.getPhotoStepCompleted())) {
+            throw new IllegalStateException("Your photo choice is complete. Please submit or cancel the preview.");
+        }
+        return draft;
     }
 
     public StudySpotSubmission submit(long userId) {
         StudySpotSubmission draft = requireDraftAtStep(
                 userId, StudySpotSubmission.Step.REVIEWING);
         validateComplete(draft);
+        if (!Boolean.TRUE.equals(draft.getPhotoStepCompleted())) {
+            throw new IllegalStateException("Send a study spot photo or choose Skip photo first.");
+        }
         // Custom names and the submitted pin stay here until the submission is approved.
         draft.setStatus(StudySpotSubmission.Status.PENDING);
         draft.setCurrentStep(StudySpotSubmission.Step.COMPLETED);
