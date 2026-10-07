@@ -206,7 +206,7 @@ public class DataSeeder implements CommandLineRunner {
     private Building getOrCreateLibrary(String name, Double latitude, Double longitude, String googlePlaceId) {
         Building building = buildingRepository.findByName(name)
                 .orElseGet(() -> buildingRepository.save(
-                new Building(name, Building.Category.LIBRARY, latitude, longitude, googlePlaceId)));
+                        new Building(name, Building.Category.LIBRARY, latitude, longitude, googlePlaceId)));
 
         boolean changed = false;
         if (building.getFaculty() != null) {
