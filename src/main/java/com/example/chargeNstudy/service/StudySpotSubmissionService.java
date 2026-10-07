@@ -3,14 +3,11 @@ package com.example.chargeNstudy.service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Locale;
 
 import org.springframework.stereotype.Service;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.chargeNstudy.entity.Building;
-import com.example.chargeNstudy.entity.Faculty;
 import com.example.chargeNstudy.entity.StudySpot;
 import com.example.chargeNstudy.entity.StudySpotSubmission;
 import com.example.chargeNstudy.repository.BuildingRepository;
@@ -31,17 +28,14 @@ public class StudySpotSubmissionService {
     private final StudySpotSubmissionRepository submissionRepository;
     private final BuildingRepository buildingRepository;
     private final FacultyRepository facultyRepository;
-    private final JdbcTemplate jdbcTemplate;
 
     public StudySpotSubmissionService(
             StudySpotSubmissionRepository submissionRepository,
             BuildingRepository buildingRepository,
-            FacultyRepository facultyRepository,
-            JdbcTemplate jdbcTemplate) {
+            FacultyRepository facultyRepository) {
         this.submissionRepository = submissionRepository;
         this.buildingRepository = buildingRepository;
         this.facultyRepository = facultyRepository;
-        this.jdbcTemplate = jdbcTemplate;
     }
 
     /** Starts a new draft, or resumes the user's existing draft. */
@@ -270,43 +264,10 @@ public class StudySpotSubmissionService {
         StudySpotSubmission draft = requireDraftAtStep(
                 userId, StudySpotSubmission.Step.REVIEWING);
         validateComplete(draft);
-        if (draft.getBuilding() == null) {
-            // Serialize same-name submissions across app instances until this transaction commits.
-            jdbcTemplate.query("select pg_advisory_xact_lock(hashtext(?))", rs -> null,
-                    draft.getNewBuildingName().toLowerCase(Locale.ROOT));
-            Building building = buildingRepository.findFirstByNameIgnoreCaseOrderByIdAsc(
-                    draft.getNewBuildingName()).orElseGet(() -> {
-                        Building created = new Building();
-                        created.setName(draft.getNewBuildingName());
-                        created.setLatitude(draft.getLatitude());
-                        created.setLongitude(draft.getLongitude());
-                        created.setCategory("library".equals(draft.getBuildingArea())
-                                ? Building.Category.LIBRARY : Building.Category.FACULTY);
-                        if ("other".equals(draft.getBuildingArea())) {
-                            created.setFaculty(resolveNewFaculty(draft.getNewFacultyName()));
-                        } else if (!"library".equals(draft.getBuildingArea())) {
-                            created.setFaculty(facultyRepository.findById(Long.parseLong(draft.getBuildingArea()))
-                                    .orElseThrow(() -> new IllegalArgumentException("Faculty no longer exists.")));
-                        }
-                        return buildingRepository.save(created);
-                    });
-            if ("other".equals(draft.getBuildingArea()) && building.getFaculty() == null
-                    && building.getCategory() == Building.Category.FACULTY) {
-                building.setFaculty(resolveNewFaculty(draft.getNewFacultyName()));
-                buildingRepository.save(building);
-            }
-            draft.setBuilding(building);
-        }
+        // Custom names and the submitted pin stay here until the submission is approved.
         draft.setStatus(StudySpotSubmission.Status.PENDING);
         draft.setCurrentStep(StudySpotSubmission.Step.COMPLETED);
         return submissionRepository.save(draft);
-    }
-
-    private Faculty resolveNewFaculty(String name) {
-        jdbcTemplate.query("select pg_advisory_xact_lock(hashtext(?))", rs -> null,
-                "faculty:" + name.toLowerCase(Locale.ROOT));
-        return facultyRepository.findFirstByNameIgnoreCaseOrderByIdAsc(name)
-                .orElseGet(() -> facultyRepository.save(new Faculty(name)));
     }
 
     public void cancel(long userId) {

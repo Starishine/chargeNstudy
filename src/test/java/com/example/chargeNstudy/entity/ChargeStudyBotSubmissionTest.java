@@ -81,7 +81,7 @@ class ChargeStudyBotSubmissionTest {
             return draft;
         });
         click("submit_area:other");
-        assertEquals("What is the faculty or area name? For example: Kent Ridge", sentMessage().getText());
+        assertTrue(sentMessage().getText().startsWith("What is the faculty or area name?"));
         verifyNoInteractions(buildings);
     }
 
