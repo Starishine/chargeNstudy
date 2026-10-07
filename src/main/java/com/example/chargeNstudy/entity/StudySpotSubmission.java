@@ -63,6 +63,10 @@ public class StudySpotSubmission {
     @JoinColumn(name = "building_id")
     private Building building;
 
+    private String newBuildingName;
+    private String buildingArea;
+    private String newFacultyName;
+
     private Double latitude;
     private Double longitude;
     private String description;

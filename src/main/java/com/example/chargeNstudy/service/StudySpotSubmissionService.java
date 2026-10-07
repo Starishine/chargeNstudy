@@ -3,14 +3,18 @@ package com.example.chargeNstudy.service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Locale;
 
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.chargeNstudy.entity.Building;
+import com.example.chargeNstudy.entity.Faculty;
 import com.example.chargeNstudy.entity.StudySpot;
 import com.example.chargeNstudy.entity.StudySpotSubmission;
 import com.example.chargeNstudy.repository.BuildingRepository;
+import com.example.chargeNstudy.repository.FacultyRepository;
 import com.example.chargeNstudy.repository.StudySpotSubmissionRepository;
 
 @Service
@@ -26,12 +30,18 @@ public class StudySpotSubmissionService {
 
     private final StudySpotSubmissionRepository submissionRepository;
     private final BuildingRepository buildingRepository;
+    private final FacultyRepository facultyRepository;
+    private final JdbcTemplate jdbcTemplate;
 
     public StudySpotSubmissionService(
             StudySpotSubmissionRepository submissionRepository,
-            BuildingRepository buildingRepository) {
+            BuildingRepository buildingRepository,
+            FacultyRepository facultyRepository,
+            JdbcTemplate jdbcTemplate) {
         this.submissionRepository = submissionRepository;
         this.buildingRepository = buildingRepository;
+        this.facultyRepository = facultyRepository;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     /** Starts a new draft, or resumes the user's existing draft. */
@@ -88,9 +98,68 @@ public class StudySpotSubmissionService {
                 "Building not found with id " + building.getId()));
         StudySpotSubmission draft = requireDraftAtStep(
                 userId, StudySpotSubmission.Step.SELECTING_BUILDING);
+        if (draft.getBuildingArea() != null) {
+            throw new IllegalStateException("Enter the building name or use Back to change your selection.");
+        }
         draft.setBuilding(persistedBuilding);
+        draft.setNewBuildingName(null);
+        draft.setBuildingArea(null);
+        draft.setNewFacultyName(null);
         draft.setCurrentStep(StudySpotSubmission.Step.WAITING_FOR_LOCATION);
         return submissionRepository.save(draft);
+    }
+
+    public StudySpotSubmission startUnlistedBuilding(long userId, String area) {
+        StudySpotSubmission draft = requireDraftAtStep(
+                userId, StudySpotSubmission.Step.SELECTING_BUILDING);
+        if (draft.getBuildingArea() != null) {
+            throw new IllegalStateException("Enter the building name or use Back to change your selection.");
+        }
+        if (!"library".equals(area) && !"other".equals(area)) {
+            facultyRepository.findById(Long.parseLong(area))
+                    .orElseThrow(() -> new IllegalArgumentException("Please select a valid faculty or area."));
+        }
+        draft.setBuilding(null);
+        draft.setBuildingArea(area);
+        draft.setNewFacultyName(null);
+        draft.setNewBuildingName(null);
+        return submissionRepository.save(draft);
+    }
+
+    public StudySpotSubmission setNewFacultyName(long userId, String name) {
+        StudySpotSubmission draft = requireBuildingNameDraft(userId);
+        if (!"other".equals(draft.getBuildingArea()) || draft.getNewFacultyName() != null) {
+            throw new IllegalStateException("Choose Other areas to enter a faculty or area name.");
+        }
+        draft.setNewFacultyName(cleanRequired(name, "Faculty or area name", 2, 100));
+        return submissionRepository.save(draft);
+    }
+
+    public StudySpotSubmission setNewBuildingName(long userId, String name) {
+        StudySpotSubmission draft = requireBuildingNameDraft(userId);
+        if ("other".equals(draft.getBuildingArea()) && draft.getNewFacultyName() == null) {
+            throw new IllegalStateException("Enter the faculty or area name first.");
+        }
+        draft.setNewBuildingName(cleanRequired(name, "Building name", 2, 100));
+        draft.setCurrentStep(StudySpotSubmission.Step.WAITING_FOR_LOCATION);
+        return submissionRepository.save(draft);
+    }
+
+    public StudySpotSubmission backToBuildingSelection(long userId) {
+        StudySpotSubmission draft = requireBuildingNameDraft(userId);
+        draft.setBuildingArea(null);
+        draft.setNewFacultyName(null);
+        draft.setNewBuildingName(null);
+        draft.setCurrentStep(StudySpotSubmission.Step.SELECTING_BUILDING);
+        return submissionRepository.save(draft);
+    }
+
+    private StudySpotSubmission requireBuildingNameDraft(long userId) {
+        StudySpotSubmission draft = requireDraftAtStep(userId, StudySpotSubmission.Step.SELECTING_BUILDING);
+        if (draft.getBuildingArea() == null) {
+            throw new IllegalStateException("Select Building not listed first.");
+        }
+        return draft;
     }
 
     public StudySpotSubmission setLocation(
@@ -201,9 +270,43 @@ public class StudySpotSubmissionService {
         StudySpotSubmission draft = requireDraftAtStep(
                 userId, StudySpotSubmission.Step.REVIEWING);
         validateComplete(draft);
+        if (draft.getBuilding() == null) {
+            // Serialize same-name submissions across app instances until this transaction commits.
+            jdbcTemplate.query("select pg_advisory_xact_lock(hashtext(?))", rs -> null,
+                    draft.getNewBuildingName().toLowerCase(Locale.ROOT));
+            Building building = buildingRepository.findFirstByNameIgnoreCaseOrderByIdAsc(
+                    draft.getNewBuildingName()).orElseGet(() -> {
+                        Building created = new Building();
+                        created.setName(draft.getNewBuildingName());
+                        created.setLatitude(draft.getLatitude());
+                        created.setLongitude(draft.getLongitude());
+                        created.setCategory("library".equals(draft.getBuildingArea())
+                                ? Building.Category.LIBRARY : Building.Category.FACULTY);
+                        if ("other".equals(draft.getBuildingArea())) {
+                            created.setFaculty(resolveNewFaculty(draft.getNewFacultyName()));
+                        } else if (!"library".equals(draft.getBuildingArea())) {
+                            created.setFaculty(facultyRepository.findById(Long.parseLong(draft.getBuildingArea()))
+                                    .orElseThrow(() -> new IllegalArgumentException("Faculty no longer exists.")));
+                        }
+                        return buildingRepository.save(created);
+                    });
+            if ("other".equals(draft.getBuildingArea()) && building.getFaculty() == null
+                    && building.getCategory() == Building.Category.FACULTY) {
+                building.setFaculty(resolveNewFaculty(draft.getNewFacultyName()));
+                buildingRepository.save(building);
+            }
+            draft.setBuilding(building);
+        }
         draft.setStatus(StudySpotSubmission.Status.PENDING);
         draft.setCurrentStep(StudySpotSubmission.Step.COMPLETED);
         return submissionRepository.save(draft);
+    }
+
+    private Faculty resolveNewFaculty(String name) {
+        jdbcTemplate.query("select pg_advisory_xact_lock(hashtext(?))", rs -> null,
+                "faculty:" + name.toLowerCase(Locale.ROOT));
+        return facultyRepository.findFirstByNameIgnoreCaseOrderByIdAsc(name)
+                .orElseGet(() -> facultyRepository.save(new Faculty(name)));
     }
 
     public void cancel(long userId) {
@@ -254,8 +357,12 @@ public class StudySpotSubmissionService {
         if (submission.getName() == null) {
             missingFields.add("name");
         }
-        if (submission.getBuilding() == null) {
+        if (submission.getBuilding() == null
+                && (submission.getNewBuildingName() == null || submission.getBuildingArea() == null)) {
             missingFields.add("building");
+        }
+        if ("other".equals(submission.getBuildingArea()) && submission.getNewFacultyName() == null) {
+            missingFields.add("faculty or area name");
         }
         if (submission.getLatitude() == null || submission.getLongitude() == null) {
             missingFields.add("location");

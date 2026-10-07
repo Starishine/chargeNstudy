@@ -14,6 +14,8 @@ public interface BuildingRepository extends JpaRepository<Building, Long> {
 
     Optional<Building> findByName(String name);
 
+    Optional<Building> findFirstByNameIgnoreCaseOrderByIdAsc(String name);
+
     List<Building> findAllByFacultyOrderByNameAsc(Faculty faculty);
 
     long countByFaculty(Faculty faculty);

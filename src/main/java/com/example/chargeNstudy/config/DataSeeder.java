@@ -55,8 +55,8 @@ public class DataSeeder implements CommandLineRunner {
         Building cjKohLibrary = getOrCreateLibrary("C J Koh Law Library", 1.3071219, 103.7699999, "ChIJ46rtGQMa2jERAn1YUJjCyH8");
         Building wanBooSowChineseLibrary = getOrCreateLibrary("Wan Boo Sow Chinese Library", 1.2965182, 103.7682741, "ChIJzQxH-Pga2jERBzWDbYXqrl4");
         Building musicLibrary = getOrCreateLibrary("Music Library", 1.3014607, 103.773578, "ChIJZ9HEX_Ya2jERi2N5S_3VrUg");
-        // Biz2 
-        Building biz2 = getOrCreateBuilding(business, "Biz2", 1.293463, 103.7722666, "ChIJyZQi-FUa2jERnuxGL51dmnQ");
+        // Business
+        Building biz2 = getOrCreateBuilding(business, "BIZ2", 1.293463, 103.7722666, "ChIJyZQi-FUa2jERnuxGL51dmnQ");
         // Utown
         Building utownPlaza = getOrCreateBuilding(Utown, "UTown Plaza/Stephen Riady Centre", 1.304855, 103.7707347, "ChIJ0U4Q6m4b2jERDEAseV3tNmM");
         Building erc = getOrCreateBuilding(Utown, "Education Resource Centre", 1.3060164, 103.7706057, "ChIJT-e8B_Ua2jERGeUtjN0-qlM");

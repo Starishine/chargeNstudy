@@ -257,9 +257,29 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                     userId,
                     chatId,
                     update.getCallbackQuery().getFrom().getUserName());
+            case "submit_area" -> {
+                StudySpotSubmission draft = submissionService.findActiveDraft(userId)
+                        .orElseThrow(() -> new IllegalStateException("Type /addspot to start a submission."));
+                if (draft.getCurrentStep() != StudySpotSubmission.Step.SELECTING_BUILDING
+                        || draft.getBuildingArea() != null) {
+                    promptForSubmissionStep(chatId, draft);
+                } else if ("back".equals(value)) {
+                    sendSubmissionFacultyOptions(chatId);
+                } else if ("other".equals(value)) {
+                    promptForSubmissionStep(chatId, submissionService.startUnlistedBuilding(userId, value));
+                } else {
+                    sendSubmissionBuildingOptions(chatId, value);
+                }
+            }
             case "submit_building" -> {
                 submissionService.setBuilding(userId, Long.parseLong(value));
                 sendSubmissionLocationRequest(chatId);
+            }
+            case "submit_unlisted" -> {
+                promptForSubmissionStep(chatId, submissionService.startUnlistedBuilding(userId, value));
+            }
+            case "submit_building_back" -> {
+                promptForSubmissionStep(chatId, submissionService.backToBuildingSelection(userId));
             }
             case "submit_socket" -> {
                 submissionService.setSocketQuantity(
@@ -405,6 +425,16 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         StudySpotSubmission updatedDraft;
 
         switch (draft.getCurrentStep()) {
+            case SELECTING_BUILDING -> {
+                if (draft.getBuildingArea() != null) {
+                    updatedDraft = "other".equals(draft.getBuildingArea()) && draft.getNewFacultyName() == null
+                            ? submissionService.setNewFacultyName(userId, text)
+                            : submissionService.setNewBuildingName(userId, text);
+                    promptForSubmissionStep(chatId, updatedDraft);
+                } else {
+                    promptForSubmissionStep(chatId, draft);
+                }
+            }
             case ENTERING_NAME -> {
                 updatedDraft = submissionService.setName(userId, text);
                 promptForSubmissionStep(chatId, updatedDraft);
@@ -438,7 +468,17 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             case ENTERING_NAME -> sendText(chatId,
                     "What is the name of the study spot?\n\n"
                     + "For example: COM2 Level 3 Discussion Area");
-            case SELECTING_BUILDING -> sendSubmissionBuildingOptions(chatId);
+            case SELECTING_BUILDING -> {
+                if (draft.getBuildingArea() == null) {
+                    sendSubmissionFacultyOptions(chatId);
+                } else {
+                    String prompt = "other".equals(draft.getBuildingArea()) && draft.getNewFacultyName() == null
+                            ? "What is the faculty or area name? For example: School of Computing"
+                            : "What is the building name? For example: COM4";
+                    send(chatId, prompt, List.of(
+                            List.of(button("Back to faculties / areas", "submit_building_back:yes"))));
+                }
+            }
             case WAITING_FOR_LOCATION -> sendSubmissionLocationRequest(chatId);
             case ENTERING_DESCRIPTION -> sendText(chatId,
                     "Briefly describe the study spot. Include landmarks or "
@@ -457,9 +497,43 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         }
     }
 
-    private void sendSubmissionBuildingOptions(long chatId) throws Exception {
+    private void sendSubmissionFacultyOptions(long chatId) throws Exception {
         List<Building> buildings = buildingRepository.findAll(
                 Sort.by(Sort.Direction.ASC, "name"));
+        Map<String, String> areas = new HashMap<>();
+        areas.put("library", "Libraries");
+        areas.put("other", "Other areas");
+        for (Building building : buildings) {
+            String label = building.getCategory() == Building.Category.LIBRARY
+                    ? "Libraries"
+                    : building.getFaculty() == null ? "Other areas" : building.getFaculty().getName();
+            areas.put(submissionAreaKey(building), label);
+        }
+
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        areas.entrySet().stream()
+                .sorted(Map.Entry.comparingByValue())
+                .forEach(area -> rows.add(List.of(button(
+                        area.getValue(), "submit_area:" + area.getKey()))));
+        if (rows.isEmpty()) {
+            sendText(chatId, "There are no buildings available yet. Type /cancel to stop.");
+            return;
+        }
+        send(chatId, "Which faculty or area is the study spot in?", rows);
+    }
+
+    private String submissionAreaKey(Building building) {
+        if (building.getCategory() == Building.Category.LIBRARY) {
+            return "library";
+        }
+        return building.getFaculty() == null ? "other" : building.getFaculty().getId().toString();
+    }
+
+    private void sendSubmissionBuildingOptions(long chatId, String areaKey) throws Exception {
+        List<Building> buildings = buildingRepository.findAll(
+                Sort.by(Sort.Direction.ASC, "name")).stream()
+                .filter(building -> submissionAreaKey(building).equals(areaKey))
+                .toList();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         for (Building building : buildings) {
@@ -468,7 +542,11 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                     "submit_building:" + building.getId())));
         }
 
-        send(chatId, "Which existing NUS building is the study spot in?", rows);
+        rows.add(List.of(button("Building not listed", "submit_unlisted:" + areaKey)));
+        rows.add(List.of(button("Back to faculties / areas", "submit_area:back")));
+        send(chatId, buildings.isEmpty()
+                ? "No buildings are listed here yet. Add a building or choose another faculty or area."
+                : "Which building is the study spot in?", rows);
     }
 
     private void sendSubmissionLocationRequest(long chatId) throws Exception {
@@ -542,7 +620,9 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             StudySpotSubmission draft) throws Exception {
         String preview = "Review your submission\n\n"
                 + "Name: " + draft.getName() + "\n"
-                + "Building: " + draft.getBuilding().getName() + "\n"
+                + "Building: " + (draft.getBuilding() == null
+                        ? draft.getNewBuildingName() + " (not listed)" : draft.getBuilding().getName()) + "\n"
+                + (draft.getNewFacultyName() == null ? "" : "Faculty / area: " + draft.getNewFacultyName() + "\n")
                 + "Description: " + draft.getDescription() + "\n"
                 + "Sockets: " + friendlyEnum(draft.getSocketQuantity()) + "\n"
                 + "Noise: " + friendlyEnum(draft.getNoiseLevel()) + "\n"
@@ -1010,9 +1090,11 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         String mapsUrl = "https://www.google.com/maps/search/?api=1&query="
                 + spot.getBuilding().getLatitude()
                 + "%2C"
-                + spot.getBuilding().getLongitude()
-                + "&query_place_id="
-                + spot.getBuilding().getGooglePlaceId();
+                + spot.getBuilding().getLongitude();
+        if (spot.getBuilding().getGooglePlaceId() != null
+                && !spot.getBuilding().getGooglePlaceId().isBlank()) {
+            mapsUrl += "&query_place_id=" + spot.getBuilding().getGooglePlaceId();
+        }
 
         InlineKeyboardButton mapsButton = InlineKeyboardButton.builder()
                 .text("🗺 Open in Maps")
