@@ -6,12 +6,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendLocation;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
@@ -21,10 +23,14 @@ import org.springframework.web.util.HtmlUtils;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Location;
+import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+import com.example.chargeNstudy.repository.BuildingRepository;
+import com.example.chargeNstudy.service.StudySpotSubmissionService;
+import com.example.chargeNstudy.service.StudySpotReviewService;
 import com.example.chargeNstudy.service.routing.OpenRouteService;
 import com.example.chargeNstudy.service.routing.WalkingRoute;
 
@@ -46,6 +52,9 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     private final String botUsername;
     private final RestClient restClient;
     private final OpenRouteService openRouteService;
+    private final StudySpotSubmissionService submissionService;
+    private final BuildingRepository buildingRepository;
+    private final StudySpotReviewService reviewService;
 
     // Tracks each user's in-progress selections (chatId -> filters so far).
     private final Map<Long, Map<String, String>> userSelections = new ConcurrentHashMap<>();
@@ -59,11 +68,17 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             @Value("${telegram.bot.token}") String botToken,
             @Value("${telegram.bot.username}") String botUsername,
             @Value("${server.port:8081}") int serverPort,
-            OpenRouteService openRouteService) {
+            OpenRouteService openRouteService,
+            StudySpotSubmissionService submissionService,
+            BuildingRepository buildingRepository,
+            StudySpotReviewService reviewService) {
         this.botToken = botToken;
         this.botUsername = botUsername;
         this.restClient = RestClient.create("http://localhost:" + serverPort + "/studyspots/");
         this.openRouteService = openRouteService;
+        this.submissionService = submissionService;
+        this.buildingRepository = buildingRepository;
+        this.reviewService = reviewService;
     }
 
     @PostConstruct
@@ -88,21 +103,69 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         return botUsername;
     }
 
+    private void startSubmission(long userId, long chatId, String username) throws Exception {
+        StudySpotSubmission draft = submissionService.startDraft(userId, chatId, username);
+        sendText(chatId, "Starting or resuming your study spot submission. "
+                + "Type /cancel at any time to stop.");
+        promptForSubmissionStep(chatId, draft);
+    }
+
     @Override
     public void onUpdateReceived(Update update) {
         try {
             if (update.hasMessage()) {
+                if (update.getMessage().hasPhoto()) {
+                    handleSubmissionPhoto(update);
+                    return;
+                }
                 if (update.getMessage().hasLocation()) {
-                    System.out.println("Received location from user: " + update.getMessage().getLocation());
-                    handleLocation(update);
+                    long userId = update.getMessage().getFrom().getId();
+                    Optional<StudySpotSubmission> draft = submissionService.findActiveDraft(userId);
+
+                    if (draft.isPresent()
+                            && draft.get().getCurrentStep()
+                            == StudySpotSubmission.Step.WAITING_FOR_LOCATION) {
+                        handleSubmissionLocation(update);
+                    } else {
+                        handleLocation(update);
+                    }
                     return;
                 }
 
                 if (update.getMessage().hasText()) {
+                    String text = update.getMessage().getText().trim();
+                    long userId = update.getMessage().getFrom().getId();
                     long chatId = update.getMessage().getChatId();
-                    if ("/start".equals(update.getMessage().getText())) {
+                    String username = update.getMessage().getFrom().getUserName();
+
+                    if ("/myid".equals(text)) {
+                        sendText(chatId, "Your Telegram user ID is " + userId + ".");
+                        return;
+                    }
+                    if ("/review".equals(text)) {
+                        sendNextReview(userId, chatId, 0);
+                        return;
+                    }
+
+                    if ("/start".equals(text)) {
                         userSelections.remove(chatId);
                         sendFacultyOptions(chatId);
+                        return;
+                    }
+
+                    if ("/addspot".equals(text)) {
+                        startSubmission(userId, chatId, username);
+                        return;
+                    }
+
+                    if ("/cancel".equals(text)) {
+                        cancelSubmission(userId, chatId);
+                        return;
+                    }
+
+                    Optional<StudySpotSubmission> draft = submissionService.findActiveDraft(userId);
+                    if (draft.isPresent()) {
+                        handleSubmissionText(chatId, userId, text, draft.get());
                     }
                 }
 
@@ -112,9 +175,47 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 handleCallback(update);
                 return;
             }
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            exception.printStackTrace();
+            sendSubmissionError(update, exception.getMessage());
         } catch (Exception exception) {
             exception.printStackTrace();
+            sendSubmissionError(update, "Something went wrong. Please try again.");
         }
+    }
+
+    private void handleSubmissionPhoto(Update update) throws Exception {
+        long userId = update.getMessage().getFrom().getId();
+        long chatId = update.getMessage().getChatId();
+        Optional<StudySpotSubmission> activeDraft = submissionService.findActiveDraft(userId);
+        if (activeDraft.isEmpty()) {
+            sendText(chatId, "Type /addspot to start a study spot submission before sending a photo.");
+            return;
+        }
+        StudySpotSubmission draft = activeDraft.get();
+        if (draft.getCurrentStep() != StudySpotSubmission.Step.REVIEWING
+                || Boolean.TRUE.equals(draft.getPhotoStepCompleted())) {
+            promptForSubmissionStep(chatId, draft);
+            return;
+        }
+        PhotoSize photo = update.getMessage().getPhoto().stream()
+                .max(Comparator.comparingLong(size -> (long) size.getWidth() * size.getHeight()))
+                .orElseThrow(() -> new IllegalArgumentException("Please send a valid photo."));
+        promptForSubmissionStep(chatId, submissionService.setPhoto(userId, photo.getFileId()));
+    }
+
+    private void handleSubmissionLocation(Update update) throws Exception {
+        long userId = update.getMessage().getFrom().getId();
+        long chatId = update.getMessage().getChatId();
+        Location location = update.getMessage().getLocation();
+
+        StudySpotSubmission draft = submissionService.setLocation(
+                userId,
+                location.getLatitude().doubleValue(),
+                location.getLongitude().doubleValue());
+
+        removeLocationKeyboard(chatId, location);
+        promptForSubmissionStep(chatId, draft);
     }
 
     private void handleLocation(Update update) throws Exception {
@@ -174,6 +275,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
 
     private void handleCallback(Update update) throws Exception {
         long chatId = update.getCallbackQuery().getMessage().getChatId();
+        long userId = update.getCallbackQuery().getFrom().getId();
         String data = update.getCallbackQuery().getData();
 
         execute(AnswerCallbackQuery.builder()
@@ -190,6 +292,91 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         Map<String, String> selections = userSelections.computeIfAbsent(chatId, ignored -> new HashMap<>());
 
         switch (step) {
+            case "review_next" -> sendNextReview(userId, chatId, Long.parseLong(value));
+            case "review_approve", "review_reject" -> {
+                long submissionId = Long.parseLong(value);
+                StudySpotReviewService.Decision decision = "review_approve".equals(step)
+                        ? reviewService.approve(userId, submissionId)
+                        : reviewService.reject(userId, submissionId);
+                StudySpotSubmission reviewed = decision.submission();
+                boolean notified = !decision.changed() || notifyContributor(reviewed);
+                sendText(chatId, "Submission #" + reviewed.getId() + " "
+                        + (decision.changed() ? "is " : "was already ")
+                        + reviewed.getStatus().name().toLowerCase() + "."
+                        + (notified ? "" : " The contributor notification could not be delivered."));
+                sendNextReview(userId, chatId, submissionId);
+            }
+            case "contribute" -> startSubmission(
+                    userId,
+                    chatId,
+                    update.getCallbackQuery().getFrom().getUserName());
+            case "submit_area" -> {
+                StudySpotSubmission draft = submissionService.findActiveDraft(userId)
+                        .orElseThrow(() -> new IllegalStateException("Type /addspot to start a submission."));
+                if (draft.getCurrentStep() != StudySpotSubmission.Step.SELECTING_BUILDING
+                        || draft.getBuildingArea() != null) {
+                    promptForSubmissionStep(chatId, draft);
+                } else if ("back".equals(value)) {
+                    sendSubmissionFacultyOptions(chatId);
+                } else if ("other".equals(value)) {
+                    promptForSubmissionStep(chatId, submissionService.startUnlistedBuilding(userId, value));
+                } else {
+                    sendSubmissionBuildingOptions(chatId, value);
+                }
+            }
+            case "submit_building" -> {
+                submissionService.setBuilding(userId, Long.parseLong(value));
+                sendSubmissionLocationRequest(chatId);
+            }
+            case "submit_unlisted" -> {
+                promptForSubmissionStep(chatId, submissionService.startUnlistedBuilding(userId, value));
+            }
+            case "submit_building_back" -> {
+                promptForSubmissionStep(chatId, submissionService.backToBuildingSelection(userId));
+            }
+            case "submit_socket" -> {
+                submissionService.setSocketQuantity(
+                        userId, StudySpot.Quantity.valueOf(value));
+                sendSubmissionNoiseOptions(chatId);
+            }
+            case "submit_noise" -> {
+                submissionService.setNoiseLevel(
+                        userId, StudySpot.NoiseLevel.valueOf(value));
+                sendSubmissionSeatingOptions(chatId);
+            }
+            case "submit_seating" -> {
+                submissionService.setSeatingCapacity(
+                        userId, StudySpot.SeatingCapacity.valueOf(value));
+                sendSubmissionAirconOptions(chatId);
+            }
+            case "submit_aircon" -> {
+                submissionService.setAirConditioned(userId, Boolean.parseBoolean(value));
+                sendSubmissionGroupOptions(chatId);
+            }
+            case "submit_group" -> {
+                submissionService.setGroupStudyAllowed(userId, Boolean.parseBoolean(value));
+                sendText(chatId, "What are the opening hours? For example: 8am - 10pm");
+            }
+            case "submit_food" -> {
+                StudySpotSubmission draft = submissionService.setFoodNearby(
+                        userId, Boolean.parseBoolean(value));
+                promptForSubmissionStep(chatId, draft);
+            }
+            case "submit_photo" -> {
+                if ("skip".equals(value)) {
+                    promptForSubmissionStep(chatId, submissionService.skipPhoto(userId));
+                }
+            }
+            case "submit_confirm" -> {
+                if ("yes".equals(value)) {
+                    StudySpotSubmission submitted = submissionService.submit(userId);
+                    sendText(chatId, "Thank you! Submission #" + submitted.getId()
+                            + " is pending review.");
+                } else {
+                    submissionService.cancel(userId);
+                    sendText(chatId, "Your submission was cancelled.");
+                }
+            }
             case "faculty" -> {
                 List<String> faculties = facultyOptionsCache.get(chatId);
                 if (faculties == null) {
@@ -288,6 +475,318 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         execute(message);
     }
 
+    private void sendNextReview(long userId, long chatId, long afterId) throws Exception {
+        Optional<StudySpotReviewService.PendingReview> pending = reviewService.nextPending(userId, afterId);
+        if (pending.isEmpty()) {
+            sendText(chatId, "There are no pending study spot submissions.");
+            return;
+        }
+        StudySpotSubmission draft = pending.get().submission();
+        if (draft.getImageUrl() != null && !draft.getImageUrl().isBlank()) {
+            try {
+                execute(SendPhoto.builder().chatId(Long.toString(chatId))
+                        .photo(new InputFile(draft.getImageUrl())).caption("Submitted study spot photo").build());
+            } catch (Exception exception) {
+                sendText(chatId, "The submitted photo could not be loaded. You can still review the details below.");
+            }
+        }
+        if (draft.getLatitude() != null && draft.getLongitude() != null) {
+            execute(SendLocation.builder().chatId(Long.toString(chatId))
+                    .latitude(draft.getLatitude()).longitude(draft.getLongitude()).build());
+        }
+        String text = "Review submission #" + draft.getId() + "\n\n"
+                + "Name: " + draft.getName() + "\n"
+                + "Faculty / area: " + pending.get().areaName() + "\n"
+                + "Building: " + (draft.getBuilding() == null
+                        ? draft.getNewBuildingName() + " (not listed)" : draft.getBuilding().getName()) + "\n"
+                + "Description: " + draft.getDescription() + "\n"
+                + "Sockets: " + friendlyEnum(draft.getSocketQuantity()) + "\n"
+                + "Noise: " + friendlyEnum(draft.getNoiseLevel()) + "\n"
+                + "Seating: " + friendlyEnum(draft.getSeatingCapacity()) + "\n"
+                + "Air-conditioned: " + yesNo(draft.getAirConditioned()) + "\n"
+                + "Group study: " + yesNo(draft.getGroupStudyAllowed()) + "\n"
+                + "Opening hours: " + draft.getOpeningHours() + "\n"
+                + "Food nearby: " + yesNo(draft.getFoodNearby());
+        send(chatId, text, List.of(List.of(
+                button("Approve", "review_approve:" + draft.getId()),
+                button("Reject", "review_reject:" + draft.getId()),
+                button("Next", "review_next:" + draft.getId()))));
+    }
+
+    private boolean notifyContributor(StudySpotSubmission reviewed) {
+        try {
+            sendText(reviewed.getChatId(), "Your study spot submission #" + reviewed.getId()
+                    + " (" + reviewed.getName() + ") "
+                    + (reviewed.getStatus() == StudySpotSubmission.Status.APPROVED
+                            ? "has been approved and is now available in the bot."
+                            : "has been rejected."));
+            return true;
+        } catch (Exception exception) {
+            System.err.println("Could not notify contributor for submission #" + reviewed.getId());
+            return false;
+        }
+    }
+
+    private void handleSubmissionText(
+            long chatId,
+            long userId,
+            String text,
+            StudySpotSubmission draft) throws Exception {
+        StudySpotSubmission updatedDraft;
+
+        switch (draft.getCurrentStep()) {
+            case SELECTING_BUILDING -> {
+                if (draft.getBuildingArea() != null) {
+                    updatedDraft = "other".equals(draft.getBuildingArea()) && draft.getNewFacultyName() == null
+                            ? submissionService.setNewFacultyName(userId, text)
+                            : submissionService.setNewBuildingName(userId, text);
+                    promptForSubmissionStep(chatId, updatedDraft);
+                } else {
+                    promptForSubmissionStep(chatId, draft);
+                }
+            }
+            case ENTERING_NAME -> {
+                updatedDraft = submissionService.setName(userId, text);
+                promptForSubmissionStep(chatId, updatedDraft);
+            }
+            case ENTERING_DESCRIPTION -> {
+                updatedDraft = submissionService.setDescription(userId, text);
+                promptForSubmissionStep(chatId, updatedDraft);
+            }
+            case ENTERING_OPENING_HOURS -> {
+                updatedDraft = submissionService.setOpeningHours(userId, text);
+                promptForSubmissionStep(chatId, updatedDraft);
+            }
+            default -> promptForSubmissionStep(chatId, draft);
+        }
+    }
+
+    private void cancelSubmission(long userId, long chatId) throws Exception {
+        if (submissionService.findActiveDraft(userId).isEmpty()) {
+            sendText(chatId, "You do not have an active study spot submission.");
+            return;
+        }
+
+        submissionService.cancel(userId);
+        sendText(chatId, "Your study spot submission was cancelled.");
+    }
+
+    private void promptForSubmissionStep(
+            long chatId,
+            StudySpotSubmission draft) throws Exception {
+        switch (draft.getCurrentStep()) {
+            case ENTERING_NAME -> sendText(chatId,
+                    "What is the name of the study spot?\n\n"
+                    + "For example: COM2 Level 3 Discussion Area");
+            case SELECTING_BUILDING -> {
+                if (draft.getBuildingArea() == null) {
+                    sendSubmissionFacultyOptions(chatId);
+                } else {
+                    String prompt = "other".equals(draft.getBuildingArea()) && draft.getNewFacultyName() == null
+                            ? "What is the faculty or area name? For example: School of Computing"
+                            : "What is the building name? For example: COM4";
+                    send(chatId, prompt, List.of(
+                            List.of(button("Back to faculties / areas", "submit_building_back:yes"))));
+                }
+            }
+            case WAITING_FOR_LOCATION -> sendSubmissionLocationRequest(chatId);
+            case ENTERING_DESCRIPTION -> sendText(chatId,
+                    "Briefly describe the study spot. Include landmarks or "
+                    + "directions that make it easier to find.");
+            case SELECTING_SOCKETS -> sendSubmissionSocketOptions(chatId);
+            case SELECTING_NOISE -> sendSubmissionNoiseOptions(chatId);
+            case SELECTING_SEATING -> sendSubmissionSeatingOptions(chatId);
+            case SELECTING_AIRCON -> sendSubmissionAirconOptions(chatId);
+            case SELECTING_GROUP_STUDY -> sendSubmissionGroupOptions(chatId);
+            case ENTERING_OPENING_HOURS -> sendText(chatId,
+                    "What are the opening hours? For example: 8am - 10pm");
+            case SELECTING_FOOD_NEARBY -> sendSubmissionFoodOptions(chatId);
+            case REVIEWING -> {
+                if (Boolean.TRUE.equals(draft.getPhotoStepCompleted())) {
+                    sendSubmissionPreview(chatId, draft);
+                } else {
+                    send(chatId, "Send a photo of this study spot, or skip this step.", List.of(
+                            List.of(button("Skip photo", "submit_photo:skip"))));
+                }
+            }
+            case COMPLETED -> sendText(chatId,
+                    "This submission is complete. Type /addspot to start another one.");
+        }
+    }
+
+    private void sendSubmissionFacultyOptions(long chatId) throws Exception {
+        List<Building> buildings = buildingRepository.findAll(
+                Sort.by(Sort.Direction.ASC, "name"));
+        Map<String, String> areas = new HashMap<>();
+        areas.put("library", "Libraries");
+        areas.put("other", "Other areas");
+        for (Building building : buildings) {
+            String label = building.getCategory() == Building.Category.LIBRARY
+                    ? "Libraries"
+                    : building.getFaculty() == null ? "Other areas" : building.getFaculty().getName();
+            areas.put(submissionAreaKey(building), label);
+        }
+
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        areas.entrySet().stream()
+                .sorted(Map.Entry.comparingByValue())
+                .forEach(area -> rows.add(List.of(button(
+                        area.getValue(), "submit_area:" + area.getKey()))));
+        if (rows.isEmpty()) {
+            sendText(chatId, "There are no buildings available yet. Type /cancel to stop.");
+            return;
+        }
+        send(chatId, "Which faculty or area is the study spot in?", rows);
+    }
+
+    private String submissionAreaKey(Building building) {
+        if (building.getCategory() == Building.Category.LIBRARY) {
+            return "library";
+        }
+        return building.getFaculty() == null ? "other" : building.getFaculty().getId().toString();
+    }
+
+    private void sendSubmissionBuildingOptions(long chatId, String areaKey) throws Exception {
+        List<Building> buildings = buildingRepository.findAll(
+                Sort.by(Sort.Direction.ASC, "name")).stream()
+                .filter(building -> submissionAreaKey(building).equals(areaKey))
+                .toList();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        for (Building building : buildings) {
+            rows.add(List.of(button(
+                    building.getName(),
+                    "submit_building:" + building.getId())));
+        }
+
+        rows.add(List.of(button("Building not listed", "submit_unlisted:" + areaKey)));
+        rows.add(List.of(button("Back to faculties / areas", "submit_area:back")));
+        send(chatId, buildings.isEmpty()
+                ? "No buildings are listed here yet. Add a building or choose another faculty or area."
+                : "Which building is the study spot in?", rows);
+    }
+
+    private void sendSubmissionLocationRequest(long chatId) throws Exception {
+        KeyboardButton locationButton = KeyboardButton.builder()
+                .text("Share study spot location")
+                .requestLocation(true)
+                .build();
+        KeyboardRow row = new KeyboardRow();
+        row.add(locationButton);
+
+        ReplyKeyboardMarkup keyboard = ReplyKeyboardMarkup.builder()
+                .keyboard(List.of(row))
+                .resizeKeyboard(true)
+                .oneTimeKeyboard(true)
+                .inputFieldPlaceholder("Share or attach the study spot location")
+                .build();
+
+        execute(SendMessage.builder()
+                .chatId(Long.toString(chatId))
+                .text("Share the exact study spot location. If you are not there, "
+                        + "attach a manually positioned Telegram location pin.")
+                .replyMarkup(keyboard)
+                .build());
+    }
+
+    private void sendSubmissionSocketOptions(long chatId) throws Exception {
+        send(chatId, "How many sockets are available?", List.of(
+                List.of(button("None", "submit_socket:NONE")),
+                List.of(button("Few", "submit_socket:FEW")),
+                List.of(button("Moderate", "submit_socket:MODERATE")),
+                List.of(button("Many", "submit_socket:MANY"))));
+    }
+
+    private void sendSubmissionNoiseOptions(long chatId) throws Exception {
+        send(chatId, "What is the usual noise level?", List.of(
+                List.of(button("Quiet", "submit_noise:QUIET")),
+                List.of(button("Moderate", "submit_noise:MODERATE")),
+                List.of(button("Loud", "submit_noise:LOUD"))));
+    }
+
+    private void sendSubmissionSeatingOptions(long chatId) throws Exception {
+        send(chatId, "How much seating is available?", List.of(
+                List.of(button("Limited", "submit_seating:LIMITED")),
+                List.of(button("Moderate", "submit_seating:MODERATE")),
+                List.of(button("Plentiful", "submit_seating:PLENTIFUL"))));
+    }
+
+    private void sendSubmissionAirconOptions(long chatId) throws Exception {
+        send(chatId, "Is the study spot air-conditioned?", List.of(
+                List.of(
+                        button("Yes", "submit_aircon:true"),
+                        button("No", "submit_aircon:false"))));
+    }
+
+    private void sendSubmissionGroupOptions(long chatId) throws Exception {
+        send(chatId, "Is it suitable for group study?", List.of(
+                List.of(
+                        button("Yes", "submit_group:true"),
+                        button("No", "submit_group:false"))));
+    }
+
+    private void sendSubmissionFoodOptions(long chatId) throws Exception {
+        send(chatId, "Is food available nearby?", List.of(
+                List.of(
+                        button("Yes", "submit_food:true"),
+                        button("No", "submit_food:false"))));
+    }
+
+    private void sendSubmissionPreview(
+            long chatId,
+            StudySpotSubmission draft) throws Exception {
+        if (draft.getImageUrl() != null && !draft.getImageUrl().isBlank()) {
+            execute(SendPhoto.builder()
+                    .chatId(Long.toString(chatId))
+                    .photo(new InputFile(draft.getImageUrl()))
+                    .caption("Study spot photo")
+                    .build());
+        }
+        String preview = "Review your submission\n\n"
+                + "Name: " + draft.getName() + "\n"
+                + "Building: " + (draft.getBuilding() == null
+                        ? draft.getNewBuildingName() + " (not listed)" : draft.getBuilding().getName()) + "\n"
+                + (draft.getNewFacultyName() == null ? "" : "Faculty / area: " + draft.getNewFacultyName() + "\n")
+                + "Description: " + draft.getDescription() + "\n"
+                + "Sockets: " + friendlyEnum(draft.getSocketQuantity()) + "\n"
+                + "Noise: " + friendlyEnum(draft.getNoiseLevel()) + "\n"
+                + "Seating: " + friendlyEnum(draft.getSeatingCapacity()) + "\n"
+                + "Air-conditioned: " + yesNo(draft.getAirConditioned()) + "\n"
+                + "Group study: " + yesNo(draft.getGroupStudyAllowed()) + "\n"
+                + "Opening hours: " + draft.getOpeningHours() + "\n"
+                + "Food nearby: " + yesNo(draft.getFoodNearby()) + "\n"
+                + "Photo: " + (draft.getImageUrl() == null ? "Skipped" : "Attached") + "\n"
+                + "Location: " + draft.getLatitude() + ", " + draft.getLongitude()
+                + "\n\nYour submission will be reviewed before appearing publicly.";
+
+        send(chatId, preview, List.of(
+                List.of(
+                        button("Submit", "submit_confirm:yes"),
+                        button("Cancel", "submit_confirm:no"))));
+    }
+
+    private String yesNo(Boolean value) {
+        return Boolean.TRUE.equals(value) ? "Yes" : "No";
+    }
+
+    private void sendSubmissionError(Update update, String errorMessage) {
+        try {
+            Long chatId = null;
+            if (update.hasMessage()) {
+                chatId = update.getMessage().getChatId();
+            } else if (update.hasCallbackQuery()
+                    && update.getCallbackQuery().getMessage() != null) {
+                chatId = update.getCallbackQuery().getMessage().getChatId();
+            }
+
+            if (chatId != null) {
+                sendText(chatId, errorMessage);
+            }
+        } catch (Exception sendException) {
+            sendException.printStackTrace();
+        }
+    }
+
     private void sendFacultyOptions(long chatId) throws Exception {
         List<String> faculties = restClient.get()
                 .uri("faculties")
@@ -306,6 +805,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         }
         rows.add(List.of(button("Library", "library:any")));
         rows.add(List.of(button("Near me", "nearby:start")));
+        rows.add(List.of(button("Add a study spot", "contribute:start")));
 
         send(chatId,
                 "Welcome to ChargeStudy! 📚\n\nChoose a faculty or Library:",
@@ -715,9 +1215,11 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         String mapsUrl = "https://www.google.com/maps/search/?api=1&query="
                 + spot.getBuilding().getLatitude()
                 + "%2C"
-                + spot.getBuilding().getLongitude()
-                + "&query_place_id="
-                + spot.getBuilding().getGooglePlaceId();
+                + spot.getBuilding().getLongitude();
+        if (spot.getBuilding().getGooglePlaceId() != null
+                && !spot.getBuilding().getGooglePlaceId().isBlank()) {
+            mapsUrl += "&query_place_id=" + spot.getBuilding().getGooglePlaceId();
+        }
 
         InlineKeyboardButton mapsButton = InlineKeyboardButton.builder()
                 .text("🗺 Open in Maps")
@@ -728,10 +1230,15 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 .keyboard(List.of(List.of(mapsButton)))
                 .build();
 
-        ClassPathResource imageResource
-                = new ClassPathResource(spot.getImageUrl());
+        if (Boolean.TRUE.equals(spot.getTelegramPhoto())
+                && spot.getImageUrl() != null && !spot.getImageUrl().isBlank()) {
+            sendSpotPhoto(chatId, new InputFile(spot.getImageUrl()), caption, keyboard);
+            return;
+        }
+        ClassPathResource imageResource = spot.getImageUrl() == null || spot.getImageUrl().isBlank()
+                ? null : new ClassPathResource(spot.getImageUrl());
 
-        if (!imageResource.exists()) {
+        if (imageResource == null || !imageResource.exists()) {
             execute(SendMessage.builder()
                     .chatId(Long.toString(chatId))
                     .text(caption)
@@ -742,15 +1249,19 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         }
 
         try (InputStream imageStream = imageResource.getInputStream()) {
-            SendPhoto message = SendPhoto.builder()
-                    .chatId(Long.toString(chatId))
-                    .photo(new InputFile(imageStream, imageResource.getFilename()))
-                    .caption(caption)
-                    .parseMode("HTML")
-                    .replyMarkup(keyboard)
-                    .build();
+            sendSpotPhoto(chatId, new InputFile(imageStream, imageResource.getFilename()), caption, keyboard);
+        }
+    }
 
-            execute(message);
+    private void sendSpotPhoto(long chatId, InputFile photo, String caption,
+            InlineKeyboardMarkup keyboard) throws Exception {
+        if (caption.length() > 1000) {
+            execute(SendPhoto.builder().chatId(Long.toString(chatId)).photo(photo).build());
+            execute(SendMessage.builder().chatId(Long.toString(chatId)).text(caption)
+                    .parseMode("HTML").replyMarkup(keyboard).build());
+        } else {
+            execute(SendPhoto.builder().chatId(Long.toString(chatId)).photo(photo).caption(caption)
+                    .parseMode("HTML").replyMarkup(keyboard).build());
         }
     }
 

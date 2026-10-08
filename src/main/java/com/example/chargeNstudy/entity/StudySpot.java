@@ -1,6 +1,7 @@
 package com.example.chargeNstudy.entity;
 
 import jakarta.persistence.Entity;
+import jakarta.persistence.Column;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
@@ -63,7 +64,9 @@ public class StudySpot {
     private boolean airConditioned;
     private String openingHours;
     private boolean foodNearby;
+    @Column(length = 1024)
     private String imageUrl;
+    private Boolean telegramPhoto;
 
     public StudySpot(
             Long id,
