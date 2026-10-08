@@ -20,6 +20,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 
 import com.example.chargeNstudy.repository.BuildingRepository;
 import com.example.chargeNstudy.service.StudySpotSubmissionService;
+import com.example.chargeNstudy.service.StudySpotReviewService;
 import com.example.chargeNstudy.service.routing.OpenRouteService;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -35,7 +36,7 @@ class ChargeStudyBotSubmissionTest {
     @BeforeEach
     void setUp() throws Exception {
         bot = spy(new ChargeStudyBot("test-token", "test-bot", 8081,
-                mock(OpenRouteService.class), submissions, buildings));
+                mock(OpenRouteService.class), submissions, buildings, mock(StudySpotReviewService.class)));
         doReturn(new Message()).when(bot).execute(any(SendMessage.class));
         doReturn(new Message()).when(bot).execute(any(SendPhoto.class));
         doReturn(true).when(bot).execute(any(AnswerCallbackQuery.class));

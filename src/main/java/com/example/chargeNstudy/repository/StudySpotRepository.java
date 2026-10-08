@@ -12,4 +12,6 @@ public interface StudySpotRepository extends JpaRepository<StudySpot, Long>, Jpa
 
     Optional<StudySpot> findByBuildingAndName(Building building, String name);
 
+    Optional<StudySpot> findFirstByBuilding_IdAndNameIgnoreCaseOrderByIdAsc(Long buildingId, String name);
+
 }

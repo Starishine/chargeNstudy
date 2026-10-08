@@ -27,7 +27,7 @@ import lombok.Setter;
 public class StudySpotSubmission {
 
     public enum Status {
-        DRAFT, PENDING, CANCELED
+        DRAFT, PENDING, CANCELED, APPROVED, REJECTED
     }
 
     public enum Step {
@@ -89,6 +89,12 @@ public class StudySpotSubmission {
     @Column(length = 1024)
     private String imageUrl;
     private Boolean photoStepCompleted;
+
+    @ManyToOne
+    @JoinColumn(name = "approved_study_spot_id", unique = true)
+    private StudySpot approvedStudySpot;
+    private Long reviewedBy;
+    private Instant reviewedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

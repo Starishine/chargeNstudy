@@ -13,6 +13,7 @@ import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendLocation;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
@@ -29,6 +30,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.Keyboard
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import com.example.chargeNstudy.repository.BuildingRepository;
 import com.example.chargeNstudy.service.StudySpotSubmissionService;
+import com.example.chargeNstudy.service.StudySpotReviewService;
 import com.example.chargeNstudy.service.routing.OpenRouteService;
 import com.example.chargeNstudy.service.routing.WalkingRoute;
 
@@ -52,6 +54,7 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
     private final OpenRouteService openRouteService;
     private final StudySpotSubmissionService submissionService;
     private final BuildingRepository buildingRepository;
+    private final StudySpotReviewService reviewService;
 
     // Tracks each user's in-progress selections (chatId -> filters so far).
     private final Map<Long, Map<String, String>> userSelections = new ConcurrentHashMap<>();
@@ -67,13 +70,15 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
             @Value("${server.port:8081}") int serverPort,
             OpenRouteService openRouteService,
             StudySpotSubmissionService submissionService,
-            BuildingRepository buildingRepository) {
+            BuildingRepository buildingRepository,
+            StudySpotReviewService reviewService) {
         this.botToken = botToken;
         this.botUsername = botUsername;
         this.restClient = RestClient.create("http://localhost:" + serverPort + "/studyspots/");
         this.openRouteService = openRouteService;
         this.submissionService = submissionService;
         this.buildingRepository = buildingRepository;
+        this.reviewService = reviewService;
     }
 
     @PostConstruct
@@ -132,6 +137,15 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                     long userId = update.getMessage().getFrom().getId();
                     long chatId = update.getMessage().getChatId();
                     String username = update.getMessage().getFrom().getUserName();
+
+                    if ("/myid".equals(text)) {
+                        sendText(chatId, "Your Telegram user ID is " + userId + ".");
+                        return;
+                    }
+                    if ("/review".equals(text)) {
+                        sendNextReview(userId, chatId, 0);
+                        return;
+                    }
 
                     if ("/start".equals(text)) {
                         userSelections.remove(chatId);
@@ -278,6 +292,20 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         Map<String, String> selections = userSelections.computeIfAbsent(chatId, ignored -> new HashMap<>());
 
         switch (step) {
+            case "review_next" -> sendNextReview(userId, chatId, Long.parseLong(value));
+            case "review_approve", "review_reject" -> {
+                long submissionId = Long.parseLong(value);
+                StudySpotReviewService.Decision decision = "review_approve".equals(step)
+                        ? reviewService.approve(userId, submissionId)
+                        : reviewService.reject(userId, submissionId);
+                StudySpotSubmission reviewed = decision.submission();
+                boolean notified = !decision.changed() || notifyContributor(reviewed);
+                sendText(chatId, "Submission #" + reviewed.getId() + " "
+                        + (decision.changed() ? "is " : "was already ")
+                        + reviewed.getStatus().name().toLowerCase() + "."
+                        + (notified ? "" : " The contributor notification could not be delivered."));
+                sendNextReview(userId, chatId, submissionId);
+            }
             case "contribute" -> startSubmission(
                     userId,
                     chatId,
@@ -445,6 +473,58 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 .build();
 
         execute(message);
+    }
+
+    private void sendNextReview(long userId, long chatId, long afterId) throws Exception {
+        Optional<StudySpotReviewService.PendingReview> pending = reviewService.nextPending(userId, afterId);
+        if (pending.isEmpty()) {
+            sendText(chatId, "There are no pending study spot submissions.");
+            return;
+        }
+        StudySpotSubmission draft = pending.get().submission();
+        if (draft.getImageUrl() != null && !draft.getImageUrl().isBlank()) {
+            try {
+                execute(SendPhoto.builder().chatId(Long.toString(chatId))
+                        .photo(new InputFile(draft.getImageUrl())).caption("Submitted study spot photo").build());
+            } catch (Exception exception) {
+                sendText(chatId, "The submitted photo could not be loaded. You can still review the details below.");
+            }
+        }
+        if (draft.getLatitude() != null && draft.getLongitude() != null) {
+            execute(SendLocation.builder().chatId(Long.toString(chatId))
+                    .latitude(draft.getLatitude()).longitude(draft.getLongitude()).build());
+        }
+        String text = "Review submission #" + draft.getId() + "\n\n"
+                + "Name: " + draft.getName() + "\n"
+                + "Faculty / area: " + pending.get().areaName() + "\n"
+                + "Building: " + (draft.getBuilding() == null
+                        ? draft.getNewBuildingName() + " (not listed)" : draft.getBuilding().getName()) + "\n"
+                + "Description: " + draft.getDescription() + "\n"
+                + "Sockets: " + friendlyEnum(draft.getSocketQuantity()) + "\n"
+                + "Noise: " + friendlyEnum(draft.getNoiseLevel()) + "\n"
+                + "Seating: " + friendlyEnum(draft.getSeatingCapacity()) + "\n"
+                + "Air-conditioned: " + yesNo(draft.getAirConditioned()) + "\n"
+                + "Group study: " + yesNo(draft.getGroupStudyAllowed()) + "\n"
+                + "Opening hours: " + draft.getOpeningHours() + "\n"
+                + "Food nearby: " + yesNo(draft.getFoodNearby());
+        send(chatId, text, List.of(List.of(
+                button("Approve", "review_approve:" + draft.getId()),
+                button("Reject", "review_reject:" + draft.getId()),
+                button("Next", "review_next:" + draft.getId()))));
+    }
+
+    private boolean notifyContributor(StudySpotSubmission reviewed) {
+        try {
+            sendText(reviewed.getChatId(), "Your study spot submission #" + reviewed.getId()
+                    + " (" + reviewed.getName() + ") "
+                    + (reviewed.getStatus() == StudySpotSubmission.Status.APPROVED
+                            ? "has been approved and is now available in the bot."
+                            : "has been rejected."));
+            return true;
+        } catch (Exception exception) {
+            System.err.println("Could not notify contributor for submission #" + reviewed.getId());
+            return false;
+        }
     }
 
     private void handleSubmissionText(
@@ -1150,10 +1230,15 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
                 .keyboard(List.of(List.of(mapsButton)))
                 .build();
 
-        ClassPathResource imageResource
-                = new ClassPathResource(spot.getImageUrl());
+        if (Boolean.TRUE.equals(spot.getTelegramPhoto())
+                && spot.getImageUrl() != null && !spot.getImageUrl().isBlank()) {
+            sendSpotPhoto(chatId, new InputFile(spot.getImageUrl()), caption, keyboard);
+            return;
+        }
+        ClassPathResource imageResource = spot.getImageUrl() == null || spot.getImageUrl().isBlank()
+                ? null : new ClassPathResource(spot.getImageUrl());
 
-        if (!imageResource.exists()) {
+        if (imageResource == null || !imageResource.exists()) {
             execute(SendMessage.builder()
                     .chatId(Long.toString(chatId))
                     .text(caption)
@@ -1164,15 +1249,19 @@ public class ChargeStudyBot extends TelegramLongPollingBot {
         }
 
         try (InputStream imageStream = imageResource.getInputStream()) {
-            SendPhoto message = SendPhoto.builder()
-                    .chatId(Long.toString(chatId))
-                    .photo(new InputFile(imageStream, imageResource.getFilename()))
-                    .caption(caption)
-                    .parseMode("HTML")
-                    .replyMarkup(keyboard)
-                    .build();
+            sendSpotPhoto(chatId, new InputFile(imageStream, imageResource.getFilename()), caption, keyboard);
+        }
+    }
 
-            execute(message);
+    private void sendSpotPhoto(long chatId, InputFile photo, String caption,
+            InlineKeyboardMarkup keyboard) throws Exception {
+        if (caption.length() > 1000) {
+            execute(SendPhoto.builder().chatId(Long.toString(chatId)).photo(photo).build());
+            execute(SendMessage.builder().chatId(Long.toString(chatId)).text(caption)
+                    .parseMode("HTML").replyMarkup(keyboard).build());
+        } else {
+            execute(SendPhoto.builder().chatId(Long.toString(chatId)).photo(photo).caption(caption)
+                    .parseMode("HTML").replyMarkup(keyboard).build());
         }
     }
 
